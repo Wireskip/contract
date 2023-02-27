@@ -1,0 +1,17 @@
+{
+    // Listening IP address and port.
+    // To listen on all interfaces, specify 0.0.0.0 (IPv4) or [::]1 (IPv6).
+    address: "127.0.0.1:8080",
+    //
+    // Keys are defined in config.local.json5.
+    // Take care NOT to store the secret key in this file.
+    // If config.local.json5 does not exist, it will be created automatically on startup.
+    //
+    // The following fields are public and will be available under /info.
+    endpoint: "http://example.com:8080",
+    info: "http://example.com:8080/info",
+    upgrade_channels: {
+        relay: {default: "0.1.0"},
+        client: {default: "0.1.0"},
+    },
+}
