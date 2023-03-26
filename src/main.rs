@@ -1,19 +1,23 @@
-use url::Url;
 use config::Config;
-use rand::rngs::OsRng;
-use serde::{Deserialize, Serialize};
-use semver::{BuildMetadata, Prerelease, Version};
 use ed25519_dalek::{Keypair, PublicKey, Signature, Signer};
-use std::{env, fs, collections::HashMap, sync::{Arc, RwLock}};
+use rand::{distributions::Alphanumeric, rngs::OsRng, thread_rng, Rng};
+use semver::{BuildMetadata, Prerelease, Version};
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    env, fs,
+    sync::{Arc, RwLock},
+};
+use url::Url;
 
 use axum::{
-    Json,
-    Router,
-    routing::get,
+    extract::rejection::JsonRejection,
     extract::State,
     http::HeaderMap,
     response::IntoResponse,
-    extract::rejection::JsonRejection,
+    routing::{get, post},
+    Json, Router,
 };
 
 mod b64e;
@@ -60,11 +64,16 @@ impl Default for Cfg {
 // fill out the derived fields
 fn mkpublic(def: PubDefined, pk: PublicKey) -> Public {
     Public {
-        defined: def,
+        defined: def.clone(),
         derived: PubDerived {
+            pubkey: Base64(pk),
             public_key: Base64(pk),
             version: VERSION.clone(),
             enrollment: Default::default(),
+            directory: Directory{
+                endpoint: def.endpoint.clone(),
+                public_key: Base64(pk),
+            },
         },
     }
 }
@@ -84,6 +93,8 @@ type SafeStateInner = Arc<RwLock<DirState>>;
 
 // what is passed to handlers
 type SafeState = State<SafeStateInner>;
+
+// DIRECTORY HANDLERS
 
 async fn relays_post(
     State(st): SafeState,
@@ -165,6 +176,72 @@ async fn info_get(State(st): SafeState) -> Json<Public> {
     Json(st.read().unwrap().public.clone())
 }
 
+// END DIRECTORY HANDLERS
+
+// AUTH HANDLERS
+// TODO unix socket support
+// https://github.com/tokio-rs/axum/blob/main/examples/unix-domain-socket/src/main.rs
+
+fn mk_nonce(len: usize) -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
+// NOTE: we don't really expect to work with times before epoch, but is this safe enough?
+fn utime() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards!")
+        .as_secs()
+}
+
+fn mk_pof(s: &dyn Signer<Signature>, poftype: String, duration: u64) -> Pof {
+    let nonce = mk_nonce(18);
+    let expiration = utime() + duration;
+    let msg = vec![poftype.clone(), expiration.to_string(), nonce.clone()].join(":");
+    let signature = Base64(s.sign(msg.as_bytes()));
+    Pof {
+        poftype,
+        nonce,
+        expiration,
+        signature,
+    }
+}
+
+async fn issue_accesskeys_post(
+    State(st): SafeState,
+    body: Result<Json<AccesskeyRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    match body {
+        Ok(Json(payload)) => {
+            let st = st.read().unwrap();
+            Json(Accesskey {
+                version: VERSION.clone(),
+                contract: Contract {
+                    // TODO FIXME hardcoded old contract for testing
+                    endpoint: Url::parse(&"http://127.0.0.1:8080/").unwrap(),
+                    // endpoint: st.public.defined.endpoint.clone(),
+                    public_key: st.public.derived.public_key,
+                },
+                pofs: (0..payload.quantity)
+                    .map(|_| mk_pof(&*st.signer, payload.poftype.clone(), payload.duration))
+                    .collect(),
+            })
+            .into_response()
+        }
+        Err(e) => Json(Status {
+            code: 400,
+            desc: e.to_string(),
+        })
+        .into_response(),
+    }
+}
+
+// END AUTH HANDLERS
+
 #[tokio::main]
 async fn main() {
     let mut p = env::current_exe().unwrap();
@@ -178,8 +255,8 @@ async fn main() {
             keypair: &'a Base64<Keypair>,
         }
 
-        let mut csprng = OsRng {};
-        let kp: Keypair = Keypair::generate(&mut csprng);
+        let mut rng = OsRng {};
+        let kp: Keypair = Keypair::generate(&mut rng);
 
         fs::write(
             p.join("key.pub"),
@@ -204,7 +281,7 @@ async fn main() {
 
     let cfg: Cfg = Config::builder()
         .add_source(config::File::from(p.join("config")))
-        .add_source(config::File::from(p.join("config.local")).required(false))
+        .add_source(config::File::from(p.join("config.local")))
         .add_source(config::Environment::with_prefix("WIRESKIP_CONTRACT"))
         .build()
         .unwrap()
@@ -226,7 +303,8 @@ async fn main() {
         public: mkpublic(cfg.pubdef.clone(), pk),
     }));
 
-    // double routes for now (they are considered equal by go stdlib but not axum)
+    // NOTE: double routes for now
+    // (they are considered equal / canonicalized by go stdlib in client but not axum)
     let app = Router::new()
         .route("/info", get(info_get))
         .route("//info", get(info_get))
@@ -238,6 +316,8 @@ async fn main() {
             "//relays",
             get(relays_get).post(relays_post).delete(relays_delete),
         )
+        .route("/issue-accesskeys", post(issue_accesskeys_post))
+        .route("//issue-accesskeys", post(issue_accesskeys_post))
         .with_state(state);
 
     axum::Server::bind(&cfg.address.parse().unwrap())
