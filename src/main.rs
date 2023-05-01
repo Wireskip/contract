@@ -1,9 +1,11 @@
 use config::Config;
 use ed25519_dalek::{Keypair, PublicKey, Signature, Signer};
 use rand::{distributions::Alphanumeric, rngs::OsRng, thread_rng, Rng};
+use rust_decimal_macros::dec;
 use semver::{BuildMetadata, Prerelease, Version};
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use signed::Signed;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{
     collections::HashMap,
     env, fs,
@@ -25,6 +27,9 @@ use b64e::*;
 
 mod api;
 use api::*;
+
+mod signable;
+mod signed;
 
 // version of this binary
 static VERSION: Version = Version {
@@ -56,6 +61,21 @@ impl Default for Cfg {
                 endpoint: Url::parse(&("http://".to_owned() + addr)).unwrap(),
                 info: None,
                 upgrade_channels: HashMap::new(),
+                pofsources: Vec::new(),
+                servicekey: ServicekeyCfg {
+                    currency: "USD".to_string(),
+                    value: dec!(100),
+                    duration: Duration::from_secs(600),
+                },
+                settlement: SettlementCfg {
+                    fee_percent: dec!(5),
+                    submission_window: Duration::from_secs(3600),
+                },
+                metadata: Some(Metadata {
+                    name: Some("PLEASE CONFIGURE ME".to_string()),
+                    operator: Some("TEST CONTRACT WITH DEFAULT CONFIG".to_string()),
+                    ..Default::default()
+                }),
             },
         }
     }
@@ -70,7 +90,7 @@ fn mkpublic(def: PubDefined, pk: PublicKey) -> Public {
             public_key: Base64(pk),
             version: VERSION.clone(),
             enrollment: Default::default(),
-            directory: Directory{
+            directory: Directory {
                 endpoint: def.endpoint.clone(),
                 public_key: Base64(pk),
             },
@@ -80,7 +100,7 @@ fn mkpublic(def: PubDefined, pk: PublicKey) -> Public {
 
 // handler shared state
 #[derive(Clone)]
-struct DirState {
+struct OurState {
     relays: HashMap<String, Relay>,
     signer: Arc<dyn Signer<Signature> + Send + Sync>,
     public: Public,
@@ -89,7 +109,7 @@ struct DirState {
 // convenience type abbreviations:
 
 // actual state datatype
-type SafeStateInner = Arc<RwLock<DirState>>;
+type SafeStateInner = Arc<RwLock<OurState>>;
 
 // what is passed to handlers
 type SafeState = State<SafeStateInner>;
@@ -191,20 +211,19 @@ fn mk_nonce(len: usize) -> String {
 }
 
 // NOTE: we don't really expect to work with times before epoch, but is this safe enough?
-fn utime() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+fn utime(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH)
         .expect("Time went backwards!")
         .as_secs()
 }
 
-fn mk_pof(s: &dyn Signer<Signature>, poftype: String, duration: u64) -> Pof {
+fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: u64) -> Pof {
     let nonce = mk_nonce(18);
-    let expiration = utime() + duration;
-    let msg = vec![poftype.clone(), expiration.to_string(), nonce.clone()].join(":");
+    let expiration = utime(SystemTime::now()) + duration;
+    let msg = vec![pof_type.clone(), expiration.to_string(), nonce.clone()].join(":");
     let signature = Base64(s.sign(msg.as_bytes()));
     Pof {
-        poftype,
+        pof_type,
         nonce,
         expiration,
         signature,
@@ -221,13 +240,11 @@ async fn issue_accesskeys_post(
             Json(Accesskey {
                 version: VERSION.clone(),
                 contract: Contract {
-                    // TODO FIXME hardcoded old contract for testing
-                    endpoint: Url::parse(&"http://127.0.0.1:8080/").unwrap(),
-                    // endpoint: st.public.defined.endpoint.clone(),
+                    endpoint: st.public.defined.endpoint.clone(),
                     public_key: st.public.derived.public_key,
                 },
                 pofs: (0..payload.quantity)
-                    .map(|_| mk_pof(&*st.signer, payload.poftype.clone(), payload.duration))
+                    .map(|_| mk_pof(&*st.signer, payload.pof_type.clone(), payload.duration))
                     .collect(),
             })
             .into_response()
@@ -242,10 +259,87 @@ async fn issue_accesskeys_post(
 
 // END AUTH HANDLERS
 
+// START CONTRACT HANDLERS
+
+async fn sk_activate(
+    State(st): SafeState,
+    body: Result<Json<ActivationRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    match body {
+        Ok(Json(_)) => {
+            let st = st.read().unwrap();
+
+            let now = SystemTime::now();
+            let skd = st.public.defined.servicekey.duration;
+            let subw = st.public.defined.settlement.submission_window;
+
+            let pk = st.public.derived.public_key;
+            let so = now + skd;
+            let ss = so + subw;
+
+            let uso = utime(so);
+            let uss = utime(ss);
+
+            let msg = vec![pk.to_string(), uso.to_string(), uss.to_string()].join(":");
+
+            let skc = SKContract {
+                public_key: pk,
+                signature: Base64(st.signer.sign(msg.as_bytes())),
+                settlement_open: uso,
+                settlement_close: uss,
+            };
+
+            println!("{:#?}", skc);
+            Json(skc).into_response()
+        }
+        Err(e) => Json(Status {
+            code: 400,
+            desc: e.to_string(),
+        })
+        .into_response(),
+    }
+}
+
+async fn st_submit(
+    State(st): SafeState,
+    body: Result<Json<Signed<Sharetoken>>, JsonRejection>,
+) -> impl IntoResponse {
+    match body {
+        Ok(Json(payload)) => {
+            let st = st.read().unwrap();
+            (if payload.contract.public_key != st.public.derived.public_key {
+                Json(Status {
+                    code: 400,
+                    desc: "Sharetoken is not for this contract".to_string(),
+                })
+            } else {
+                Json(Status {
+                    code: 200,
+                    desc: "OK".to_string(),
+                })
+            })
+            .into_response()
+        }
+        Err(e) => Json(Status {
+            code: 400,
+            desc: e.to_string(),
+        })
+        .into_response(),
+    }
+}
+
+// END CONTRACT HANDLERS
+
 #[tokio::main]
 async fn main() {
     let mut p = env::current_exe().unwrap();
     p.pop();
+
+    let main = p.join("config.json5");
+    if !main.exists() {
+        fs::write(main, serde_json::to_string(&Cfg::default()).unwrap())
+            .expect("Unable to write config file");
+    }
 
     let local = p.join("config.local.json5");
     if !local.exists() {
@@ -297,7 +391,7 @@ async fn main() {
 
     let kp = cfg.keypair.unwrap().0;
 
-    let state: SafeStateInner = Arc::new(RwLock::new(DirState {
+    let state: SafeStateInner = Arc::new(RwLock::new(OurState {
         relays: HashMap::new(),
         signer: Arc::new(kp),
         public: mkpublic(cfg.pubdef.clone(), pk),
@@ -318,6 +412,10 @@ async fn main() {
         )
         .route("/issue-accesskeys", post(issue_accesskeys_post))
         .route("//issue-accesskeys", post(issue_accesskeys_post))
+        .route("/servicekey/activate", post(sk_activate))
+        .route("//servicekey/activate", post(sk_activate))
+        .route("/submit", post(st_submit))
+        .route("//submit", post(st_submit))
         .with_state(state);
 
     axum::Server::bind(&cfg.address.parse().unwrap())

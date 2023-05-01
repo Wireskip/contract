@@ -9,7 +9,7 @@ use serde::{
 use std::fmt;
 use std::marker::PhantomData;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Base64<T>(pub T);
 
 impl From<Base64<Keypair>> for Keypair {
