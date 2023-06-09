@@ -2,6 +2,7 @@ use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer};
 use rust_decimal::Decimal;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
 
@@ -228,7 +229,7 @@ pub struct Servicekey {
 }
 
 // TODO implement stateful deserialization via seed to sign inner data?
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SKContract {
     pub public_key: Base64<PublicKey>,
     pub signature: Base64<Signature>,
@@ -236,7 +237,7 @@ pub struct SKContract {
     pub settlement_close: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Sharetoken {
     pub version: u8,
     pub public_key: Base64<PublicKey>,
@@ -250,19 +251,21 @@ pub struct Sharetoken {
 // TODO implement derive(Signable) procmacro?
 impl Signable for Sharetoken {
     fn digest(&self) -> String {
-        vec![
+        let r = vec![
             self.version.to_string(),
             self.public_key.to_string(),
             self.timestamp.to_string(),
             self.relay_pubkey.to_string(),
-            self.signature.to_string(),
+            "".to_string(), // sharekey was never implemented
             self.nonce.clone(),
             self.contract.public_key.to_string(),
             self.contract.signature.to_string(),
             self.contract.settlement_open.to_string(),
             self.contract.settlement_close.to_string(),
         ]
-        .join(":")
+        .join(":");
+        println!("{}", r);
+        r
     }
 
     fn public_key(&self) -> PublicKey {
@@ -276,5 +279,25 @@ impl Signable for Sharetoken {
     fn sign(&mut self, kp: Keypair) {
         self.public_key = Base64(kp.public);
         self.signature = Base64(kp.sign(self.digest().as_bytes()));
+    }
+}
+
+impl PartialEq for Sharetoken {
+    fn eq(&self, other: &Self) -> bool {
+        u64::eq(&self.timestamp, &other.timestamp)
+    }
+}
+
+impl Eq for Sharetoken {}
+
+impl PartialOrd for Sharetoken {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        u64::partial_cmp(&self.timestamp, &other.timestamp)
+    }
+}
+
+impl Ord for Sharetoken {
+    fn cmp(&self, other: &Self) -> Ordering {
+        Ordering::reverse(u64::cmp(&self.timestamp, &other.timestamp))
     }
 }
