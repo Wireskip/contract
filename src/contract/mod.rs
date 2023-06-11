@@ -10,6 +10,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use log::debug;
 use std::time::SystemTime;
 
 pub mod calc;
@@ -39,7 +40,7 @@ pub async fn activate_post_handler(
 
             let skc = SKContract {
                 public_key: pk,
-                signature: Base64(st.signer.sign(msg.as_bytes())),
+                signature: Base64(st.signer.sign(msg.as_bytes()).to_bytes()),
                 settlement_open: uso,
                 settlement_close: uss,
             };
@@ -60,7 +61,7 @@ pub async fn submit_post_handler(
     println!("entered submit handler!");
     match body {
         Ok(Json(payload)) => {
-            println!("body is ok");
+            debug!("/submit body is OK");
             let mut st = st.write().unwrap();
             (if payload.contract.public_key != st.public.derived.public_key {
                 Json(Status {
@@ -77,7 +78,7 @@ pub async fn submit_post_handler(
             .into_response()
         }
         Err(e) => {
-            println!("body is NOT ok! {:?}", e);
+            debug!("/submit body is NOT OK: {:?}", e);
             Json(Status {
                 code: 400,
                 desc: e.to_string(),

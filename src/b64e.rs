@@ -1,5 +1,5 @@
 use base64::Engine;
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature};
+use ed25519_dalek::{ed25519::SignatureBytes, SecretKey, Signature, SigningKey, VerifyingKey};
 use serde::{
     de,
     de::{MapAccess, Visitor},
@@ -12,13 +12,13 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Base64<T>(pub T);
 
-impl From<Base64<Keypair>> for Keypair {
-    fn from(w: Base64<Keypair>) -> Keypair {
+impl From<Base64<SigningKey>> for SigningKey {
+    fn from(w: Base64<SigningKey>) -> SigningKey {
         w.0
     }
 }
-impl From<Base64<PublicKey>> for PublicKey {
-    fn from(w: Base64<PublicKey>) -> PublicKey {
+impl From<Base64<VerifyingKey>> for VerifyingKey {
+    fn from(w: Base64<VerifyingKey>) -> VerifyingKey {
         w.0
     }
 }
@@ -27,9 +27,9 @@ impl From<Base64<SecretKey>> for SecretKey {
         w.0
     }
 }
-impl From<Base64<Signature>> for Signature {
-    fn from(w: Base64<Signature>) -> Signature {
-        w.0
+impl From<Base64<SignatureBytes>> for Signature {
+    fn from(w: Base64<SignatureBytes>) -> Signature {
+        w.0.into()
     }
 }
 
@@ -79,7 +79,7 @@ where
     })
 }
 
-impl<'de> Deserialize<'de> for Base64<Keypair> {
+impl<'de> Deserialize<'de> for Base64<SigningKey> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -91,22 +91,22 @@ impl<'de> Deserialize<'de> for Base64<Keypair> {
             Public,
         }
 
-        struct KeypairVisitor;
+        struct SigningKeyVisitor;
 
-        impl<'de> Visitor<'de> for KeypairVisitor {
-            type Value = Base64<Keypair>;
+        impl<'de> Visitor<'de> for SigningKeyVisitor {
+            type Value = Base64<SigningKey>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter
                     .write_str("keypair object with base64-encoded secret and public key fields")
             }
 
-            fn visit_map<V>(self, mut map: V) -> Result<Base64<Keypair>, V::Error>
+            fn visit_map<V>(self, mut map: V) -> Result<Base64<SigningKey>, V::Error>
             where
                 V: MapAccess<'de>,
             {
                 let mut secret: Option<Base64<SecretKey>> = None;
-                let mut public: Option<Base64<PublicKey>> = None;
+                let mut public: Option<Base64<VerifyingKey>> = None;
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Secret => {
@@ -124,53 +124,47 @@ impl<'de> Deserialize<'de> for Base64<Keypair> {
                     }
                 }
                 let secret = secret.ok_or_else(|| de::Error::missing_field("secret"))?;
-                let public = public.ok_or_else(|| de::Error::missing_field("public"))?;
-                Ok(Base64(Keypair {
-                    secret: secret.into(),
-                    public: public.into(),
-                }))
+                Ok(Base64(SigningKey::from_bytes(&secret.0)))
             }
         }
 
         const FIELDS: &'static [&'static str] = &["secret", "public"];
-        deserializer.deserialize_struct("keypair", FIELDS, KeypairVisitor)
+        deserializer.deserialize_struct("keypair", FIELDS, SigningKeyVisitor)
     }
 }
 
-impl Serialize for Base64<Keypair> {
+impl Serialize for Base64<SigningKey> {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         let mut state = ser.serialize_struct("keypair", 2)?;
-        // HACK SecretKey is not Copy nor Clone nor would a reference suffice here, so ...
-        state.serialize_field(
-            "secret",
-            &Base64(SecretKey::from_bytes(&self.0.secret.to_bytes()).unwrap()),
-        )?;
-        state.serialize_field("public", &Base64(self.0.public))?;
+        state.serialize_field("secret", &Base64(self.0.to_bytes()))?;
+        state.serialize_field("public", &Base64(self.0.verifying_key()))?;
         state.end()
     }
 }
 
-impl Serialize for Base64<PublicKey> {
+impl Serialize for Base64<VerifyingKey> {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         bytes_serialize(self, ser)
     }
 }
 
-impl<'de> Deserialize<'de> for Base64<PublicKey> {
+impl<'de> Deserialize<'de> for Base64<VerifyingKey> {
     fn deserialize<D: Deserializer<'de>>(des: D) -> Result<Self, D::Error> {
-        bytes_deserialize(des, |src: &[u8]| PublicKey::from_bytes(&src[..]))
+        bytes_deserialize(des, |src: &[u8]| {
+            VerifyingKey::from_bytes(&src[..].try_into().expect("Veryfying key has wrong length!"))
+        })
     }
 }
 
-impl Serialize for Base64<Signature> {
+impl Serialize for Base64<SignatureBytes> {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         bytes_serialize(self, ser)
     }
 }
 
-impl<'de> Deserialize<'de> for Base64<Signature> {
+impl<'de> Deserialize<'de> for Base64<SignatureBytes> {
     fn deserialize<D: Deserializer<'de>>(des: D) -> Result<Self, D::Error> {
-        bytes_deserialize(des, |src: &[u8]| Signature::from_bytes(&src[..]))
+        bytes_deserialize(des, |src: &[u8]| SignatureBytes::try_from(&src[..]))
     }
 }
 
@@ -182,7 +176,7 @@ impl Serialize for Base64<SecretKey> {
 
 impl<'de> Deserialize<'de> for Base64<SecretKey> {
     fn deserialize<D: Deserializer<'de>>(des: D) -> Result<Self, D::Error> {
-        bytes_deserialize(des, |src: &[u8]| SecretKey::from_bytes(&src[..]))
+        bytes_deserialize(des, |src: &[u8]| <SecretKey>::try_from(&src[..]))
     }
 }
 

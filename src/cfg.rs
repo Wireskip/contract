@@ -1,4 +1,4 @@
-use ed25519_dalek::{Keypair, PublicKey};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
@@ -14,7 +14,7 @@ use crate::{
 #[serde(default)]
 pub struct Cfg {
     pub address: String,
-    pub keypair: Option<Base64<Keypair>>,
+    pub keypair: Option<Base64<SigningKey>>,
     #[serde(flatten)]
     pub pubdef: PubDefined,
 }
@@ -52,7 +52,7 @@ impl Default for Cfg {
 }
 
 // fill out the derived fields
-pub fn mkpublic(def: PubDefined, pk: PublicKey) -> Public {
+pub fn mkpublic(def: PubDefined, pk: VerifyingKey) -> Public {
     Public {
         defined: def.clone(),
         derived: PubDerived {

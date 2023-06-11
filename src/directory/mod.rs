@@ -77,7 +77,7 @@ pub async fn relays_get_handler(State(st): crate::state::Safe) -> impl IntoRespo
     let mut header_map = HeaderMap::new();
     let st = st.read().unwrap();
     let s = serde_json::to_string(&st.relays.clone()).unwrap();
-    let sig = Base64(st.signer.sign(s.as_bytes())).to_string();
+    let sig = Base64(st.signer.sign(s.as_bytes()).to_bytes()).to_string();
     header_map.insert(
         "wireleap-directory-pubkey",
         st.public.derived.public_key.to_string().parse().unwrap(),

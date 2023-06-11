@@ -1,10 +1,12 @@
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer};
+use ed25519_dalek::ed25519::SignatureBytes;
+use ed25519_dalek::{SecretKey, Signer, VerifyingKey};
 use rust_decimal::Decimal;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
+use wireskip_macros::Sign;
 
 use crate::b64e::*;
 use crate::signable::*;
@@ -36,8 +38,8 @@ pub struct PubDefined {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PubDerived {
     // TODO rename to public_key globally
-    pub pubkey: Base64<PublicKey>,
-    pub public_key: Base64<PublicKey>,
+    pub pubkey: Base64<VerifyingKey>,
+    pub public_key: Base64<VerifyingKey>,
     pub version: Version,
     pub enrollment: Enrollment,
     pub directory: Directory,
@@ -64,7 +66,7 @@ pub enum Role {
 pub struct Relay {
     // TODO rename to public_key globally
     #[serde(rename = "pubkey")]
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
     pub role: Role,
     pub address: String,
     pub versions: Versions,
@@ -119,7 +121,7 @@ impl Enrollment {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Directory {
     pub endpoint: Url,
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
 }
 
 // AUTH SECTION
@@ -131,13 +133,13 @@ pub struct Pof {
     pub pof_type: String,
     pub nonce: String,
     pub expiration: u64,
-    pub signature: Base64<Signature>,
+    pub signature: Base64<SignatureBytes>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Contract {
     pub endpoint: Url,
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -163,7 +165,7 @@ pub struct PofSource {
     pub endpoint: Url,
     #[serde(rename = "type")]
     pub pof_type: String,
-    pub pubkey: Base64<PublicKey>,
+    pub pubkey: Base64<VerifyingKey>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -215,7 +217,7 @@ pub struct Metadata {
 pub struct ActivationRequest {
     // TODO rename to public_key globally
     #[serde(rename = "pubkey")]
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
     pub pof: Pof,
 }
 
@@ -223,62 +225,39 @@ pub struct ActivationRequest {
 pub struct Servicekey {
     #[serde(rename = "private_key")]
     pub secret_key: Base64<SecretKey>,
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contract: Option<SKContract>,
 }
 
-// TODO implement stateful deserialization via seed to sign inner data?
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Sign)]
 pub struct SKContract {
-    pub public_key: Base64<PublicKey>,
-    pub signature: Base64<Signature>,
+    pub public_key: Base64<VerifyingKey>,
+    #[digest_sig]
+    pub signature: Base64<SignatureBytes>,
     pub settlement_open: u64,
     pub settlement_close: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Sign)]
 pub struct Sharetoken {
     pub version: u8,
-    pub public_key: Base64<PublicKey>,
+    pub public_key: Base64<VerifyingKey>,
     pub timestamp: u64,
-    pub relay_pubkey: Base64<PublicKey>,
-    pub signature: Base64<Signature>,
+    pub relay_pubkey: Base64<VerifyingKey>,
+    pub share_key: String, // unused
     pub nonce: String,
+    pub signature: Base64<SignatureBytes>,
     pub contract: SKContract,
 }
 
-// TODO implement derive(Signable) procmacro?
-impl Signable for Sharetoken {
+pub trait Digestible {
+    fn digest(&self) -> String;
+}
+
+impl<T: ToString> Digestible for T {
     fn digest(&self) -> String {
-        let r = vec![
-            self.version.to_string(),
-            self.public_key.to_string(),
-            self.timestamp.to_string(),
-            self.relay_pubkey.to_string(),
-            "".to_string(), // sharekey was never implemented
-            self.nonce.clone(),
-            self.contract.public_key.to_string(),
-            self.contract.signature.to_string(),
-            self.contract.settlement_open.to_string(),
-            self.contract.settlement_close.to_string(),
-        ]
-        .join(":");
-        println!("{}", r);
-        r
-    }
-
-    fn public_key(&self) -> PublicKey {
-        self.public_key.into()
-    }
-
-    fn signature(&self) -> Signature {
-        self.signature.into()
-    }
-
-    fn sign(&mut self, kp: Keypair) {
-        self.public_key = Base64(kp.public);
-        self.signature = Base64(kp.sign(self.digest().as_bytes()));
+        self.to_string()
     }
 }
 

@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 use config::Config;
-use ed25519_dalek::Keypair;
+use ed25519_dalek::SigningKey;
 use log::*;
 use rand::rngs::OsRng;
 use rust_decimal::Decimal;
@@ -60,15 +60,15 @@ async fn main() {
         // to write just the correct config subset
         #[derive(Serialize)]
         struct K<'a> {
-            keypair: &'a Base64<Keypair>,
+            keypair: &'a Base64<SigningKey>,
         }
 
         let mut rng = OsRng {};
-        let kp: Keypair = Keypair::generate(&mut rng);
+        let kp: SigningKey = SigningKey::generate(&mut rng);
 
         fs::write(
             p.join("key.pub"),
-            serde_json::to_string(&Base64(kp.public)).unwrap(),
+            serde_json::to_string(&Base64(kp.verifying_key())).unwrap(),
         )
         .expect("Unable to write pubkey compat file");
         fs::write(
@@ -99,7 +99,7 @@ async fn main() {
     println!("Listening on {}", cfg.address);
 
     let pk = match cfg.keypair {
-        Some(Base64(ref kp)) => kp.public.clone(),
+        Some(Base64(ref kp)) => kp.verifying_key().clone(),
         None => panic!("No keys defined -- is your config.local.json5 in place? `init` done?"),
     };
 

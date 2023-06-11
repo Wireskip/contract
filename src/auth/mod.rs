@@ -28,7 +28,7 @@ fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: u64) -> Pof {
     let nonce = mk_nonce(18);
     let expiration = crate::time::utime(SystemTime::now()) + duration;
     let msg = vec![pof_type.clone(), expiration.to_string(), nonce.clone()].join(":");
-    let signature = Base64(s.sign(msg.as_bytes()));
+    let signature = Base64(s.sign(msg.as_bytes()).to_bytes());
     Pof {
         pof_type,
         nonce,
