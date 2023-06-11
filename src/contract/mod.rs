@@ -58,7 +58,7 @@ pub async fn submit_post_handler(
     State(st): crate::state::Safe,
     body: Result<Json<Signed<Sharetoken>>, JsonRejection>,
 ) -> impl IntoResponse {
-    println!("entered submit handler!");
+    debug!("Entered /submit handler.");
     match body {
         Ok(Json(payload)) => {
             debug!("/submit body is OK");

@@ -96,7 +96,7 @@ async fn main() {
         .try_deserialize()
         .unwrap();
 
-    println!("Listening on {}", cfg.address);
+    info!("Listening on {}", cfg.address);
 
     let pk = match cfg.keypair {
         Some(Base64(ref kp)) => kp.verifying_key().clone(),

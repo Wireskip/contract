@@ -1,20 +1,20 @@
+use crate::{
+    api::{Public, Relay, Status},
+    b64e::Base64,
+};
 use axum::{
     extract::{rejection::JsonRejection, State},
     http::HeaderMap,
     response::IntoResponse,
     Json,
 };
-
-use crate::{
-    api::{Public, Relay, Status},
-    b64e::Base64,
-};
+use log::{debug, warn};
 
 pub async fn relays_post_handler(
     State(st): crate::state::Safe,
     body: Result<Json<Relay>, JsonRejection>,
 ) -> Json<Status> {
-    eprintln!("Relay POSTed: {:?}", body);
+    debug!("Relay POSTed: {:?}", body);
     match body {
         Ok(Json(payload)) => {
             let mut st = st.write().unwrap();
@@ -42,7 +42,7 @@ pub async fn relays_delete_handler(
     State(st): crate::state::Safe,
     body: Result<Json<Relay>, JsonRejection>,
 ) -> Json<Status> {
-    eprintln!("Relay DELETEd: {:?}", body);
+    debug!("Relay DELETEd: {:?}", body);
     match body {
         Ok(Json(payload)) => {
             let mut st = st.write().unwrap();
@@ -54,7 +54,7 @@ pub async fn relays_delete_handler(
             }
             let roleinfo = st.public.derived.enrollment.role(payload.role);
             if !roleinfo.record(-1) {
-                eprintln!(
+                warn!(
                     "Relay bookkeeping underflow for {:?} at {:?} ({})! Weird.",
                     payload.role, roleinfo.count, -1,
                 )
@@ -73,7 +73,7 @@ pub async fn relays_delete_handler(
 }
 
 pub async fn relays_get_handler(State(st): crate::state::Safe) -> impl IntoResponse {
-    eprintln!("Relay GET");
+    debug!("Relay GET");
     let mut header_map = HeaderMap::new();
     let st = st.read().unwrap();
     let s = serde_json::to_string(&st.relays.clone()).unwrap();
