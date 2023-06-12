@@ -8,8 +8,14 @@ use std::{collections::HashMap, time::Duration};
 use url::Url;
 use wireskip_macros::Sign;
 
-use crate::b64e::*;
-use crate::signable::*;
+pub mod b64e;
+pub mod digestible;
+pub mod signable;
+pub mod signed;
+
+use b64e::*;
+use digestible::*;
+use signable::*;
 
 // GENERAL SECTION
 
@@ -233,7 +239,6 @@ pub struct Servicekey {
 #[derive(Serialize, Deserialize, Clone, Debug, Sign)]
 pub struct SKContract {
     pub public_key: Base64<VerifyingKey>,
-    #[digest_sig]
     pub signature: Base64<SignatureBytes>,
     pub settlement_open: u64,
     pub settlement_close: u64,
@@ -248,17 +253,8 @@ pub struct Sharetoken {
     pub share_key: String, // unused
     pub nonce: String,
     pub signature: Base64<SignatureBytes>,
+    #[digest_with_sig]
     pub contract: SKContract,
-}
-
-pub trait Digestible {
-    fn digest(&self) -> String;
-}
-
-impl<T: ToString> Digestible for T {
-    fn digest(&self) -> String {
-        self.to_string()
-    }
 }
 
 impl PartialEq for Sharetoken {

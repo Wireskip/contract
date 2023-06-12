@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::{
     api::{Directory, Metadata, PubDefined, PubDerived, Public, ServicekeyCfg, SettlementCfg},
-    b64e::Base64,
+    api::b64e::Base64,
     VERSION,
 };
 

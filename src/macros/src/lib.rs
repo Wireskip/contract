@@ -1,21 +1,21 @@
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Index};
 
-#[proc_macro_derive(Sign, attributes(digest_sig))]
+#[proc_macro_derive(Sign, attributes(digest_with_sig))]
 pub fn derive_digest(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
     let digest = impl_digest(&input.data);
     let expanded = quote! {
+        impl Digestible for #name { #digest }
         impl Signable for #name {
-            fn digest(&self) -> String { [#digest].join(":") }
             fn public_key(&self) -> ed25519_dalek::VerifyingKey { self.public_key.into() }
             fn signature(&self) -> ed25519_dalek::Signature { self.signature.into() }
             fn sign(&mut self, kp: ed25519_dalek::SigningKey) {
-                self.public_key = crate::b64e::Base64(kp.verifying_key());
-                self.signature = crate::b64e::Base64(kp.sign(self.digest().as_bytes()).to_bytes());
+                self.public_key = crate::api::b64e::Base64(kp.verifying_key());
+                self.signature = crate::api::b64e::Base64(kp.sign(self.digest().as_bytes()).to_bytes());
             }
         }
     };
@@ -26,30 +26,54 @@ fn impl_digest(data: &Data) -> TokenStream {
     match *data {
         Data::Struct(ref data) => match data.fields {
             Fields::Named(ref fields) => {
-                let recurse = fields.named.iter().map(|f| {
+                let sig = Some(Ident::new("signature", Span::call_site()));
+                let sigdig = fields.named.iter().map(|f| {
                     let name = &f.ident;
-                    // signature field should not be part of the signature
-                    let sig = Some(Ident::new("signature", f.span()));
-                    if *name == sig
-                        && !f
-                            .attrs
-                            .iter()
-                            .any(|attr| attr.path().get_ident().unwrap() == "digest_sig")
+                    // signature field should not be part of the digest unless nested struct
+                    // (since we are taking the sigless digest of the outermost struct only)
+                    if f.attrs
+                        .clone()
+                        .into_iter()
+                        .any(|attr| attr.path().get_ident().unwrap() == "digest_with_sig")
                     {
-                        quote!()
+                        quote_spanned! {f.span()=> self.#name.digest_with_sig(), }
                     } else {
-                        quote_spanned! {f.span()=>
-                            self.#name.digest(),
-                        }
+                        quote_spanned! {f.span()=> self.#name.digest(), }
                     }
                 });
-                quote! { #(#recurse)* }
+                let nosigdig = fields.named.iter().map(|f| {
+                    let name = &f.ident;
+                    // signature field should not be part of the digest unless nested struct
+                    // (since we are taking the sigless digest of the outermost struct only)
+                    if *name == sig {
+                        quote!()
+                    } else if f
+                        .attrs
+                        .clone()
+                        .into_iter()
+                        .any(|attr| attr.path().get_ident().unwrap() == "digest_with_sig")
+                    {
+                        quote_spanned! {f.span()=> self.#name.digest_with_sig(), }
+                    } else {
+                        quote_spanned! {f.span()=> self.#name.digest(), }
+                    }
+                });
+                quote! {
+                    fn digest(&self) -> String { [#(#nosigdig)*].join(":") }
+                    fn digest_with_sig(&self) -> String { [#(#sigdig)*].join(":") }
+                }
             }
             Fields::Unnamed(ref fields) => {
                 let recurse = fields.unnamed.iter().enumerate().map(|(i, f)| {
                     let index = Index::from(i);
-                    quote_spanned! {f.span()=>
-                        self.#index.digest(),
+                    if f.attrs
+                        .clone()
+                        .into_iter()
+                        .any(|attr| attr.path().get_ident().unwrap() == "digest_with_sig")
+                    {
+                        quote_spanned! {f.span()=> self.#index.digest_with_sig(), }
+                    } else {
+                        quote_spanned! {f.span()=> self.#index.digest(), }
                     }
                 });
                 quote! { #(#recurse)* }

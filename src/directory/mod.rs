@@ -1,6 +1,6 @@
 use crate::{
     api::{Public, Relay, Status},
-    b64e::Base64,
+    api::b64e::Base64,
 };
 use axum::{
     extract::{rejection::JsonRejection, State},

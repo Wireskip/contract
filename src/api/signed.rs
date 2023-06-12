@@ -1,4 +1,4 @@
-use crate::signable::Signable;
+use crate::{api::digestible::Digestible, api::signable::Signable};
 use ed25519_dalek::Verifier;
 use serde::{Deserialize, Deserializer};
 use std::ops::Deref;
@@ -19,7 +19,7 @@ pub struct Signed<T: Signable>(pub T);
 
 impl<'de, T> Deserialize<'de> for Signed<T>
 where
-    T: Signable + Deserialize<'de>,
+    T: Signable + Deserialize<'de> + Digestible,
 {
     fn deserialize<D>(de: D) -> Result<Signed<T>, D::Error>
     where

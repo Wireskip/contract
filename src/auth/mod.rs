@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use crate::{
     api::{Accesskey, AccesskeyRequest, Contract, Pof, Status},
-    b64e::Base64,
+    api::b64e::Base64,
     VERSION,
 };
 

@@ -19,16 +19,13 @@ use std::{
 
 mod api;
 mod auth;
-mod b64e;
 mod cfg;
 mod contract;
 mod directory;
-mod signable;
-mod signed;
 mod state;
 mod time;
 
-use crate::b64e::Base64;
+use crate::api::b64e::Base64;
 use crate::cfg::Cfg;
 use crate::contract::{calc, tracker};
 use crate::time::utime;
