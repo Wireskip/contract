@@ -17,7 +17,7 @@ pub struct Custom {
     pub relays: HashMap<String, Relay>,
     pub signer: Arc<dyn Signer<Signature> + Send + Sync>,
     pub public: Public,
-    pub sts: Tracker,
+    pub tracker: Tracker,
 }
 
 // convenience type abbreviations:

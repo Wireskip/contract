@@ -69,7 +69,7 @@ pub async fn submit_post_handler(
                     desc: "Sharetoken is not for this contract".to_string(),
                 })
             } else {
-                st.sts.push(payload.0);
+                st.tracker.push(payload.0);
                 Json(Status {
                     code: 200,
                     desc: "OK".to_string(),

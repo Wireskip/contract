@@ -112,7 +112,7 @@ async fn main() {
         relays: HashMap::new(),
         signer: Arc::new(kp),
         public: cfg::mkpublic(cfg.pubdef.clone(), pk),
-        sts: tracker::Tracker::new(Arc::new(Box::new(calc))),
+        tracker: tracker::Tracker::new(Arc::new(Box::new(calc))),
     }));
 
     let bgstate = state.clone();
@@ -121,7 +121,7 @@ async fn main() {
         debug!("- Tracker thread spawned!");
         loop {
             let unow = utime(SystemTime::now());
-            let unext = bgstate.write().unwrap().sts.tick(unow);
+            let unext = bgstate.write().unwrap().tracker.tick(unow);
             tokio::time::sleep(Duration::from_secs(unext - unow)).await
         }
     });
