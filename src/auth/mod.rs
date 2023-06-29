@@ -4,25 +4,16 @@ use axum::{
     Json,
 };
 use ed25519_dalek::{Signature, Signer};
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::time::SystemTime;
 
 use crate::{
+    api::{b64e::Base64, nonce::mk_nonce},
     api::{Accesskey, AccesskeyRequest, Contract, Pof, Status},
-    api::b64e::Base64,
     VERSION,
 };
 
 // TODO unix socket support
 // https://github.com/tokio-rs/axum/blob/main/examples/unix-domain-socket/src/main.rs
-
-fn mk_nonce(len: usize) -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(len)
-        .map(char::from)
-        .collect()
-}
 
 fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: u64) -> Pof {
     let nonce = mk_nonce(18);

@@ -10,6 +10,7 @@ use wireskip_macros::Sign;
 
 pub mod b64e;
 pub mod digestible;
+pub mod nonce;
 pub mod signable;
 pub mod signed;
 
