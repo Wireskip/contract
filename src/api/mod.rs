@@ -1,18 +1,21 @@
+use crate::api::timestamp::Timestamped;
 use ed25519_dalek::ed25519::SignatureBytes;
 use ed25519_dalek::{SecretKey, Signer, VerifyingKey};
 use rust_decimal::Decimal;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::{collections::HashMap, time::Duration};
+use strum::{Display, EnumString};
 use url::Url;
-use wireskip_macros::Sign;
+use wireskip_macros::{Sign, Timestamped};
 
 pub mod b64e;
+pub mod chronosort;
 pub mod digestible;
 pub mod nonce;
 pub mod signable;
 pub mod signed;
+pub mod timestamp;
 
 use b64e::*;
 use digestible::*;
@@ -38,6 +41,8 @@ pub struct PubDefined {
     pub pofsources: Vec<PofSource>,
     pub servicekey: ServicekeyCfg,
     pub settlement: SettlementCfg,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub payout: Vec<PayoutCfg>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
@@ -139,7 +144,7 @@ pub struct Pof {
     #[serde(rename = "type")]
     pub pof_type: String,
     pub nonce: String,
-    pub expiration: u64,
+    pub expiration: i64,
     pub signature: Base64<SignatureBytes>,
 }
 
@@ -154,8 +159,8 @@ pub struct AccesskeyRequest {
     // "type" is a reserved keyword
     #[serde(rename = "type")]
     pub pof_type: String,
-    pub quantity: u64,
-    pub duration: u64,
+    pub quantity: i64,
+    pub duration: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -196,13 +201,20 @@ pub struct SettlementCfg {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PayoutCfg {
+    // The URL of the payment system.
     pub endpoint: Url,
+    // Payment system type.
     #[serde(rename = "type")]
-    pub pof_type: String,
+    pub ps_type: String,
+    // How often to check for withdrawal status changes.
     #[serde(with = "humantime_serde")]
     pub check_period: Duration,
-    pub min_withdrawal: u64,
-    pub max_withdrawal: u64,
+    // Minimum withdrawal amount.
+    pub min_withdrawal: Option<u64>,
+    // Maximum withdrawal amount.
+    pub max_withdrawal: Option<u64>,
+    // Optional info URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub info: Option<Url>,
 }
 
@@ -241,15 +253,15 @@ pub struct Servicekey {
 pub struct SKContract {
     pub public_key: Base64<VerifyingKey>,
     pub signature: Base64<SignatureBytes>,
-    pub settlement_open: u64,
-    pub settlement_close: u64,
+    pub settlement_open: i64,
+    pub settlement_close: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Sign)]
+#[derive(Serialize, Deserialize, Clone, Debug, Sign, Timestamped)]
 pub struct Sharetoken {
     pub version: u8,
     pub public_key: Base64<VerifyingKey>,
-    pub timestamp: u64,
+    pub timestamp: i64,
     pub relay_pubkey: Base64<VerifyingKey>,
     pub share_key: String, // unused
     pub nonce: String,
@@ -258,22 +270,31 @@ pub struct Sharetoken {
     pub contract: SKContract,
 }
 
-impl PartialEq for Sharetoken {
-    fn eq(&self, other: &Self) -> bool {
-        u64::eq(&self.timestamp, &other.timestamp)
-    }
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WithdrawalRequest {
+    pub amount: i64,
+    #[serde(rename = "type")]
+    pub w_type: String,
+    pub destination: String,
 }
 
-impl Eq for Sharetoken {}
-
-impl PartialOrd for Sharetoken {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        u64::partial_cmp(&self.timestamp, &other.timestamp)
-    }
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Withdrawal {
+    pub id: String,
+    pub state: WithdrawalState,
+    pub state_changed: i64,
+    pub withdrawal_request: WithdrawalRequest,
+    pub receipt: String,
 }
 
-impl Ord for Sharetoken {
-    fn cmp(&self, other: &Self) -> Ordering {
-        Ordering::reverse(u64::cmp(&self.timestamp, &other.timestamp))
-    }
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Display, EnumString)]
+pub enum WithdrawalState {
+    Pending,
+    Complete,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WithdrawalStateUpdate {
+    pub id: String,
+    pub state: WithdrawalState,
 }

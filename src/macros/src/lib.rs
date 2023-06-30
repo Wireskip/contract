@@ -85,3 +85,17 @@ fn impl_digest(data: &Data) -> TokenStream {
         Data::Enum(_) | Data::Union(_) => unimplemented!(),
     }
 }
+
+#[proc_macro_derive(Timestamped)]
+pub fn derive_timestamped(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+    let expanded = quote! {
+        impl Timestamped for #name {
+            fn timestamp(&self) -> crate::api::timestamp::Timestamp {
+                return self.timestamp
+            }
+        }
+    };
+    proc_macro::TokenStream::from(expanded)
+}

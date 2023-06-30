@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.6"
+axum = { version = "0.6", features = ["macros", "http2", "headers"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 ed25519-dalek = { version = "2.0.0-pre.0", features = ["serde", "rand_core"] }
@@ -24,3 +24,5 @@ humantime = "2.1.0"
 log = "0.4.18"
 env_logger = "0.10.0"
 wireskip_macros = { path = "src/macros" }
+strum = { version = "0.25.0", features = ["derive"] }
+tokio-stream = { version = "0.1.14", features = ["full"] }

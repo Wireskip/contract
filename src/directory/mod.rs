@@ -17,7 +17,7 @@ pub async fn relays_post_handler(
     debug!("Relay POSTed: {:?}", body);
     match body {
         Ok(Json(payload)) => {
-            let mut st = st.write().unwrap();
+            let mut st = st.write().await;
             if st.public.derived.enrollment.role(payload.role).record(1) {
                 st.relays.insert(payload.address.clone(), payload);
                 Json(Status {
@@ -45,7 +45,7 @@ pub async fn relays_delete_handler(
     debug!("Relay DELETEd: {:?}", body);
     match body {
         Ok(Json(payload)) => {
-            let mut st = st.write().unwrap();
+            let mut st = st.write().await;
             if !st.relays.contains_key(&payload.address) {
                 return Json(Status {
                     code: 404,
@@ -75,7 +75,7 @@ pub async fn relays_delete_handler(
 pub async fn relays_get_handler(State(st): crate::state::Safe) -> impl IntoResponse {
     debug!("Relay GET");
     let mut header_map = HeaderMap::new();
-    let st = st.read().unwrap();
+    let st = st.read().await;
     let s = serde_json::to_string(&st.relays.clone()).unwrap();
     let sig = Base64(st.signer.sign(s.as_bytes()).to_bytes()).to_string();
     header_map.insert(
@@ -87,5 +87,5 @@ pub async fn relays_get_handler(State(st): crate::state::Safe) -> impl IntoRespo
 }
 
 pub async fn info_get_handler(State(st): crate::state::Safe) -> Json<Public> {
-    Json(st.read().unwrap().public.clone())
+    Json(st.read().await.public.clone())
 }

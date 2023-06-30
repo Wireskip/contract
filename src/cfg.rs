@@ -5,8 +5,8 @@ use std::{collections::HashMap, time::Duration};
 use url::Url;
 
 use crate::{
-    api::{Directory, Metadata, PubDefined, PubDerived, Public, ServicekeyCfg, SettlementCfg},
     api::b64e::Base64,
+    api::{Directory, Metadata, PubDefined, PubDerived, Public, ServicekeyCfg, SettlementCfg},
     VERSION,
 };
 
@@ -41,6 +41,7 @@ impl Default for Cfg {
                     fee_percent: dec!(5),
                     submission_window: Duration::from_secs(3600),
                 },
+                payout: Vec::new(),
                 metadata: Some(Metadata {
                     name: Some("PLEASE CONFIGURE ME".to_string()),
                     operator: Some("TEST CONTRACT WITH DEFAULT CONFIG".to_string()),

@@ -13,9 +13,10 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     env, fs,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
+use tokio::sync::{mpsc, RwLock};
 
 mod api;
 mod auth;
@@ -25,10 +26,10 @@ mod directory;
 mod state;
 mod time;
 
-use crate::api::b64e::Base64;
 use crate::cfg::Cfg;
 use crate::contract::{calc, tracker};
 use crate::time::utime;
+use crate::{api::b64e::Base64, contract::tracker::BalanceUpdate};
 
 // version of this binary
 static VERSION: Version = Version {
@@ -108,11 +109,20 @@ async fn main() {
         rsh_frac: dec!(5) / Decimal::ONE_HUNDRED, // hardcoded revenue share
     };
 
+    let (txn_tx, txn_rx) = mpsc::channel(100);
+    let (watcher_tx, _watcher_rx) = mpsc::channel(100);
+
     let state: state::SafeInner = Arc::new(RwLock::new(state::Custom {
         relays: HashMap::new(),
         signer: Arc::new(kp),
         public: cfg::mkpublic(cfg.pubdef.clone(), pk),
-        tracker: tracker::Tracker::new(Arc::new(Box::new(calc))),
+        tracker: Arc::new(RwLock::new(tracker::Tracker::new(
+            Arc::new(Box::new(calc)),
+            5,
+            txn_rx,
+        ))),
+        txn_tx: txn_tx.clone(),
+        watcher_tx: watcher_tx.clone(),
     }));
 
     let bgstate = state.clone();
@@ -121,8 +131,26 @@ async fn main() {
         debug!("- Tracker thread spawned!");
         loop {
             let unow = utime(SystemTime::now());
-            let unext = bgstate.write().unwrap().tracker.tick(unow);
-            tokio::time::sleep(Duration::from_secs(unext - unow)).await
+            let unext = bgstate.write().await.tracker.write().await.tick(unow).await;
+
+            bgstate.write().await.tracker.write().await.txn_tick().await;
+
+            tokio::time::sleep(Duration::from_secs((unext - unow).try_into().unwrap())).await
+        }
+    });
+
+    tokio::task::spawn(async move {
+        debug!("- Withdrawal status update thread spawned!");
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            debug!("- Sending withdrawal status update!");
+            txn_tx
+                .send(BalanceUpdate {
+                    relay: "dummy".to_string(),
+                    action: tracker::Action::Apply,
+                })
+                .await
+                .unwrap()
         }
     });
 
@@ -161,6 +189,16 @@ async fn main() {
         )
         .route("/submit", post(contract::submit_post_handler))
         .route("//submit", post(contract::submit_post_handler))
+        .route("/withdraw", post(contract::withdraw_post_handler))
+        .route("//withdraw", post(contract::withdraw_post_handler))
+        .route(
+            "/verify-withdrawal-request",
+            post(auth::verify_withdrawal_request_post_handler),
+        )
+        .route(
+            "//verify-withdrawal-request",
+            post(auth::verify_withdrawal_request_post_handler),
+        )
         .with_state(state);
 
     axum::Server::bind(&cfg.address.parse().unwrap())

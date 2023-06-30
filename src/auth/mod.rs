@@ -7,7 +7,7 @@ use ed25519_dalek::{Signature, Signer};
 use std::time::SystemTime;
 
 use crate::{
-    api::{b64e::Base64, nonce::mk_nonce},
+    api::{b64e::Base64, nonce::mk_nonce, WithdrawalRequest},
     api::{Accesskey, AccesskeyRequest, Contract, Pof, Status},
     VERSION,
 };
@@ -15,7 +15,7 @@ use crate::{
 // TODO unix socket support
 // https://github.com/tokio-rs/axum/blob/main/examples/unix-domain-socket/src/main.rs
 
-fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: u64) -> Pof {
+fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: i64) -> Pof {
     let nonce = mk_nonce(18);
     let expiration = crate::time::utime(SystemTime::now()) + duration;
     let msg = vec![pof_type.clone(), expiration.to_string(), nonce.clone()].join(":");
@@ -34,7 +34,7 @@ pub async fn issue_accesskeys_post_handler(
 ) -> impl IntoResponse {
     match body {
         Ok(Json(payload)) => {
-            let st = st.read().unwrap();
+            let st = st.read().await;
             Json(Accesskey {
                 version: VERSION.clone(),
                 contract: Contract {
@@ -47,6 +47,26 @@ pub async fn issue_accesskeys_post_handler(
             })
             .into_response()
         }
+        Err(e) => Json(Status {
+            code: 400,
+            desc: e.to_string(),
+        })
+        .into_response(),
+    }
+}
+
+// only provided temporarily as backwards compat
+// withdrawals will be reworked in the future so this isn't needed
+pub async fn verify_withdrawal_request_post_handler(
+    State(_): crate::state::Safe,
+    body: Result<Json<WithdrawalRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    match body {
+        Ok(Json(_payload)) => Json(Status {
+            code: 200,
+            desc: "OK".to_string(),
+        })
+        .into_response(),
         Err(e) => Json(Status {
             code: 400,
             desc: e.to_string(),
