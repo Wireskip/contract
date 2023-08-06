@@ -1,7 +1,4 @@
-use crate::{
-    api::{Public, Relay, Status},
-    api::b64e::Base64,
-};
+use crate::api::{Public, Relay};
 use axum::{
     extract::{rejection::JsonRejection, State},
     http::HeaderMap,
@@ -9,6 +6,7 @@ use axum::{
     Json,
 };
 use log::{debug, warn};
+use ws_common::{api::Status, b64e::Base64};
 
 pub async fn relays_post_handler(
     State(st): crate::state::Safe,

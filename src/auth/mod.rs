@@ -1,3 +1,4 @@
+use crate::VERSION;
 use axum::{
     extract::{rejection::JsonRejection, State},
     response::IntoResponse,
@@ -5,11 +6,11 @@ use axum::{
 };
 use ed25519_dalek::{Signature, Signer};
 use std::time::SystemTime;
-
-use crate::{
-    api::{b64e::Base64, nonce::mk_nonce, WithdrawalRequest},
-    api::{Accesskey, AccesskeyRequest, Contract, Pof, Status},
-    VERSION,
+use ws_common::{
+    api::{Accesskey, AccesskeyRequest, Contract, Pof, Status, WithdrawalRequest},
+    b64e::Base64,
+    nonce::mk_nonce,
+    time::utime,
 };
 
 // TODO unix socket support
@@ -17,7 +18,7 @@ use crate::{
 
 fn mk_pof(s: &dyn Signer<Signature>, pof_type: String, duration: i64) -> Pof {
     let nonce = mk_nonce(18);
-    let expiration = crate::time::utime(SystemTime::now()) + duration;
+    let expiration = utime(SystemTime::now()) + duration;
     let msg = vec![pof_type.clone(), expiration.to_string(), nonce.clone()].join(":");
     let signature = Base64(s.sign(msg.as_bytes()).to_bytes());
     Pof {

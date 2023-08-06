@@ -1,13 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
-
-use axum::extract::State;
-use ed25519_dalek::{Signature, Signer};
-use tokio::sync::{mpsc::Sender, RwLock};
-
 use crate::{
-    api::{Public, Relay, Withdrawal},
+    api::{Public, Relay},
     contract::tracker::{BalanceUpdate, Tracker},
 };
+use axum::extract::State;
+use ed25519_dalek::{Signature, Signer};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc::Sender, RwLock};
+use ws_common::api::Withdrawal;
 
 // handler shared state
 // TODO derive separate threadsafe substates via FromRef?

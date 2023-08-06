@@ -1,9 +1,6 @@
-use crate::api::headersignedjson::HeaderSignedJson;
-use crate::api::{ActivationRequest, HttpClient, Withdrawal, WithdrawalRequest};
 use crate::{
-    api::b64e::Base64,
-    api::signed::Signed,
-    api::{SKContract, Sharetoken, Status},
+    api::{headersignedjson::HeaderSignedJson, signed::Signed, ActivationRequest},
+    api::{SKContract, Sharetoken},
 };
 use axum::{
     body::Body,
@@ -15,7 +12,11 @@ use hyper::{body, Method, Request};
 use log::debug;
 use rust_decimal::Decimal;
 use std::time::SystemTime;
-use crate::time::utime;
+use ws_common::{
+    api::{HttpClient, Status, Withdrawal, WithdrawalRequest, WithdrawalState},
+    b64e::Base64,
+    time::utime,
+};
 
 pub mod calc;
 pub mod tracker;
@@ -160,7 +161,7 @@ pub async fn withdraw_post_handler(
                         desc: format!("could not get body from payment system: {}", e.to_string()),
                     })
                 })?;
-                if w.state_data.state == crate::api::WithdrawalState::Pending {
+                if w.state_data.state == WithdrawalState::Pending {
                     st.watcher_tx.send(w.clone()).await.map_err(|e| {
                         Json(Status {
                             code: 500,

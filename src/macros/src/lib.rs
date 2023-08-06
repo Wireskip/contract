@@ -14,8 +14,8 @@ pub fn derive_digest(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
             fn public_key(&self) -> ed25519_dalek::VerifyingKey { self.public_key.into() }
             fn signature(&self) -> ed25519_dalek::Signature { self.signature.into() }
             fn sign(&mut self, kp: ed25519_dalek::SigningKey) {
-                self.public_key = crate::api::b64e::Base64(kp.verifying_key());
-                self.signature = crate::api::b64e::Base64(kp.sign(self.digest().as_bytes()).to_bytes());
+                self.public_key = ws_common::b64e::Base64(kp.verifying_key());
+                self.signature = ws_common::b64e::Base64(kp.sign(self.digest().as_bytes()).to_bytes());
             }
         }
     };

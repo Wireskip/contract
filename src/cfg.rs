@@ -1,14 +1,16 @@
+use crate::{
+    api::{
+        Directory, Metadata, PayoutCfg, PubDefined, PubDerived, Public, ServicekeyCfg,
+        SettlementCfg,
+    },
+    VERSION,
+};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 use url::Url;
-
-use crate::{
-    api::{b64e::Base64, PayoutCfg},
-    api::{Directory, Metadata, PubDefined, PubDerived, Public, ServicekeyCfg, SettlementCfg},
-    VERSION,
-};
+use ws_common::b64e::Base64;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(default)]

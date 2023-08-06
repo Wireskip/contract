@@ -8,8 +8,8 @@ axum = { version = "0.6", features = ["macros", "http2", "headers"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 ed25519-dalek = { version = "2.0.0-pre.0", features = ["serde", "rand_core"] }
-serde = { version = "1", features = ["derive"] }
 url = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 semver = { version = "1", features = ["serde"] }
 base64 = "0.21"
@@ -28,3 +28,5 @@ strum = { version = "0.25.0", features = ["derive"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
 http = "0.2.9"
 async-trait = "0.1.71"
+ws_common = { path = "../ws_common" }
+once_cell = "1.18.0"

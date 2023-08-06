@@ -274,6 +274,7 @@ dependencies = [
  "hyper",
  "json5",
  "log",
+ "once_cell",
  "rand",
  "rust_decimal",
  "rust_decimal_macros",
@@ -286,6 +287,7 @@ dependencies = [
  "tower",
  "url",
  "wireskip_macros",
+ "ws_common",
 ]
 
 [[package]]
@@ -815,9 +817,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.16.0"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
+checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "ordered-multimap"
@@ -1803,6 +1805,22 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.25",
+]
+
+[[package]]
+name = "ws_common"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.0",
+ "ed25519-dalek",
+ "http",
+ "hyper",
+ "rand",
+ "semver",
+ "serde",
+ "serde_json",
+ "strum",
+ "url",
 ]
 
 [[package]]

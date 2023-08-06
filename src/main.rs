@@ -1,4 +1,8 @@
-use crate::time::utime;
+use crate::{
+    cfg::Cfg,
+    contract::tracker::BalanceUpdate,
+    contract::{calc, tracker},
+};
 use axum::{
     routing::{get, post},
     Router,
@@ -6,10 +10,11 @@ use axum::{
 use config::Config;
 use ed25519_dalek::SigningKey;
 use log::*;
+use once_cell::sync::Lazy;
 use rand::rngs::OsRng;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use semver::{BuildMetadata, Prerelease, Version};
+use semver::Version;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -18,28 +23,17 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::sync::{mpsc, RwLock};
+use ws_common::{b64e::Base64, time::utime};
 
 mod api;
 mod auth;
 mod cfg;
 mod contract;
 mod directory;
-mod ps;
 mod state;
-mod time;
-
-use crate::cfg::Cfg;
-use crate::contract::{calc, tracker};
-use crate::{api::b64e::Base64, contract::tracker::BalanceUpdate};
 
 // version of this binary
-static VERSION: Version = Version {
-    major: 0,
-    minor: 1,
-    patch: 0,
-    pre: Prerelease::EMPTY,
-    build: BuildMetadata::EMPTY,
-};
+static VERSION: Lazy<Version> = Lazy::new(|| Version::parse(env!("CARGO_PKG_VERSION")).unwrap());
 
 #[tokio::main]
 async fn main() {
@@ -200,14 +194,6 @@ async fn main() {
             "//verify-withdrawal-request",
             post(auth::verify_withdrawal_request_post_handler),
         )
-        .route("/buy", get(ps::buy_get_handler))
-        .route("//buy", get(ps::buy_get_handler))
-        .route("/withdrawals", post(ps::withdrawals_post_handler))
-        .route("//withdrawals", post(ps::withdrawals_post_handler))
-        .route("/withdrawals", post(ps::withdrawals_post_handler))
-        .route("//withdrawals", post(ps::withdrawals_post_handler))
-        .route("/withdrawals/:id", get(ps::withdrawals_get_handler))
-        .route("//withdrawals/:id", get(ps::withdrawals_get_handler))
         .with_state(state);
 
     axum::Server::bind(&cfg.address.parse().unwrap())

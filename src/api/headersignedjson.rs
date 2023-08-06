@@ -1,4 +1,3 @@
-use super::{b64e::Base64, Status};
 use async_trait::async_trait;
 use axum::{body::Body, body::HttpBody, extract::FromRequest, http::StatusCode, Json};
 use ed25519_dalek::{ed25519::SignatureBytes, Signature, Verifier, VerifyingKey};
@@ -6,6 +5,7 @@ use hyper::Request;
 use serde::de::DeserializeOwned;
 use std::str::FromStr;
 use strum::EnumString;
+use ws_common::{api::Status, b64e::Base64};
 
 #[derive(Debug, EnumString)]
 pub enum Signatory {
