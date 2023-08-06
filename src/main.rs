@@ -1,3 +1,4 @@
+use crate::time::utime;
 use axum::{
     routing::{get, post},
     Router,
@@ -23,12 +24,12 @@ mod auth;
 mod cfg;
 mod contract;
 mod directory;
+mod ps;
 mod state;
 mod time;
 
 use crate::cfg::Cfg;
 use crate::contract::{calc, tracker};
-use crate::time::utime;
 use crate::{api::b64e::Base64, contract::tracker::BalanceUpdate};
 
 // version of this binary
@@ -199,6 +200,14 @@ async fn main() {
             "//verify-withdrawal-request",
             post(auth::verify_withdrawal_request_post_handler),
         )
+        .route("/buy", get(ps::buy_get_handler))
+        .route("//buy", get(ps::buy_get_handler))
+        .route("/withdrawals", post(ps::withdrawals_post_handler))
+        .route("//withdrawals", post(ps::withdrawals_post_handler))
+        .route("/withdrawals", post(ps::withdrawals_post_handler))
+        .route("//withdrawals", post(ps::withdrawals_post_handler))
+        .route("/withdrawals/:id", get(ps::withdrawals_get_handler))
+        .route("//withdrawals/:id", get(ps::withdrawals_get_handler))
         .with_state(state);
 
     axum::Server::bind(&cfg.address.parse().unwrap())

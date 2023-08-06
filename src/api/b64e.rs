@@ -151,7 +151,7 @@ impl Serialize for Base64<VerifyingKey> {
 impl<'de> Deserialize<'de> for Base64<VerifyingKey> {
     fn deserialize<D: Deserializer<'de>>(des: D) -> Result<Self, D::Error> {
         bytes_deserialize(des, |src: &[u8]| {
-            VerifyingKey::from_bytes(&src[..].try_into().expect("Veryfying key has wrong length!"))
+            VerifyingKey::from_bytes(&src[..].try_into().expect("Verifying key has wrong length!"))
         })
     }
 }

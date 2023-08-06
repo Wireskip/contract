@@ -5,7 +5,7 @@ use std::{collections::HashMap, time::Duration};
 use url::Url;
 
 use crate::{
-    api::b64e::Base64,
+    api::{b64e::Base64, PayoutCfg},
     api::{Directory, Metadata, PubDefined, PubDerived, Public, ServicekeyCfg, SettlementCfg},
     VERSION,
 };
@@ -23,12 +23,13 @@ pub struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         let addr = "127.0.0.1:8081";
+        let endp = Url::parse(&("http://".to_owned() + addr)).unwrap();
         Self {
             address: addr.to_string(),
             // keypair is pre-generated in main() so this is fine
             keypair: None,
             pubdef: PubDefined {
-                endpoint: Url::parse(&("http://".to_owned() + addr)).unwrap(),
+                endpoint: endp.clone(),
                 info: None,
                 upgrade_channels: HashMap::new(),
                 pofsources: Vec::new(),
@@ -41,7 +42,14 @@ impl Default for Cfg {
                     fee_percent: dec!(5),
                     submission_window: Duration::from_secs(3600),
                 },
-                payout: Vec::new(),
+                payout: PayoutCfg {
+                    endpoint: endp.clone(),
+                    ps_type: "dummy".to_string(),
+                    check_period: Duration::from_secs(5),
+                    min_withdrawal: Some(0),
+                    max_withdrawal: Some(u64::MAX),
+                    info: Some(endp.clone()),
+                },
                 metadata: Some(Metadata {
                     name: Some("PLEASE CONFIGURE ME".to_string()),
                     operator: Some("TEST CONTRACT WITH DEFAULT CONFIG".to_string()),

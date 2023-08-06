@@ -1,9 +1,11 @@
 use crate::api::timestamp::Timestamped;
 use ed25519_dalek::ed25519::SignatureBytes;
 use ed25519_dalek::{SecretKey, Signer, VerifyingKey};
+use hyper::{client::HttpConnector, Body, Client};
 use rust_decimal::Decimal;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use std::{collections::HashMap, time::Duration};
 use strum::{Display, EnumString};
 use url::Url;
@@ -12,6 +14,7 @@ use wireskip_macros::{Sign, Timestamped};
 pub mod b64e;
 pub mod chronosort;
 pub mod digestible;
+pub mod headersignedjson;
 pub mod nonce;
 pub mod signable;
 pub mod signed;
@@ -41,8 +44,7 @@ pub struct PubDefined {
     pub pofsources: Vec<PofSource>,
     pub servicekey: ServicekeyCfg,
     pub settlement: SettlementCfg,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub payout: Vec<PayoutCfg>,
+    pub payout: PayoutCfg,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
@@ -57,7 +59,7 @@ pub struct PubDerived {
     pub directory: Directory,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Status {
     pub code: u16,
     #[serde(rename = "description")]
@@ -159,7 +161,7 @@ pub struct AccesskeyRequest {
     // "type" is a reserved keyword
     #[serde(rename = "type")]
     pub pof_type: String,
-    pub quantity: i64,
+    pub quantity: u64,
     pub duration: i64,
 }
 
@@ -281,10 +283,16 @@ pub struct WithdrawalRequest {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Withdrawal {
     pub id: String,
-    pub state: WithdrawalState,
-    pub state_changed: i64,
+    #[serde(flatten)]
+    pub state_data: WithdrawalStateData,
     pub withdrawal_request: WithdrawalRequest,
     pub receipt: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WithdrawalStateData {
+    pub state: WithdrawalState,
+    pub state_changed: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Display, EnumString)]
@@ -297,4 +305,26 @@ pub enum WithdrawalState {
 pub struct WithdrawalStateUpdate {
     pub id: String,
     pub state: WithdrawalState,
+}
+
+pub struct HttpClient(pub Client<HttpConnector, Body>);
+
+impl HttpClient {
+    pub fn new() -> Self {
+        Self(hyper::Client::builder().build(HttpConnector::new()))
+    }
+}
+
+impl Deref for HttpClient {
+    type Target = Client<HttpConnector, Body>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// PS SECTION
+
+#[derive(Deserialize)]
+pub struct BuyParams {
+    pub quantity: u64,
 }
