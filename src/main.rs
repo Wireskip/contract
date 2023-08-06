@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{
     routing::{get, post},
-    Router,
+    Router, ServiceExt,
 };
 use config::Config;
 use ed25519_dalek::SigningKey;
@@ -23,6 +23,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::sync::{mpsc, RwLock};
+use tower::layer::Layer;
+use tower_http::normalize_path::NormalizePathLayer;
 use ws_common::{b64e::Base64, time::utime};
 
 mod api;
@@ -149,52 +151,31 @@ async fn main() {
         }
     });
 
-    // NOTE: double routes for now
-    // (they are considered equal / canonicalized by go stdlib in client but not axum)
-    let app = Router::new()
-        .route("/info", get(directory::info_get_handler))
-        .route("//info", get(directory::info_get_handler))
-        .route(
-            "/relays",
-            get(directory::relays_get_handler)
-                .post(directory::relays_post_handler)
-                .delete(directory::relays_delete_handler),
-        )
-        .route(
-            "//relays",
-            get(directory::relays_get_handler)
-                .post(directory::relays_post_handler)
-                .delete(directory::relays_delete_handler),
-        )
-        .route(
-            "/issue-accesskeys",
-            post(auth::issue_accesskeys_post_handler),
-        )
-        .route(
-            "//issue-accesskeys",
-            post(auth::issue_accesskeys_post_handler),
-        )
-        .route(
-            "/servicekey/activate",
-            post(contract::activate_post_handler),
-        )
-        .route(
-            "//servicekey/activate",
-            post(contract::activate_post_handler),
-        )
-        .route("/submit", post(contract::submit_post_handler))
-        .route("//submit", post(contract::submit_post_handler))
-        .route("/withdraw", post(contract::withdraw_post_handler))
-        .route("//withdraw", post(contract::withdraw_post_handler))
-        .route(
-            "/verify-withdrawal-request",
-            post(auth::verify_withdrawal_request_post_handler),
-        )
-        .route(
-            "//verify-withdrawal-request",
-            post(auth::verify_withdrawal_request_post_handler),
-        )
-        .with_state(state);
+    let app = NormalizePathLayer::trim_trailing_slash().layer(
+        Router::new()
+            .route("/info", get(directory::info_get_handler))
+            .route(
+                "/relays",
+                get(directory::relays_get_handler)
+                    .post(directory::relays_post_handler)
+                    .delete(directory::relays_delete_handler),
+            )
+            .route(
+                "/issue-accesskeys",
+                post(auth::issue_accesskeys_post_handler),
+            )
+            .route(
+                "/servicekey/activate",
+                post(contract::activate_post_handler),
+            )
+            .route("/submit", post(contract::submit_post_handler))
+            .route("/withdraw", post(contract::withdraw_post_handler))
+            .route(
+                "/verify-withdrawal-request",
+                post(auth::verify_withdrawal_request_post_handler),
+            )
+            .with_state(state),
+    );
 
     axum::Server::bind(&cfg.address.parse().unwrap())
         .serve(app.into_make_service())
