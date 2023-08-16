@@ -7,10 +7,12 @@ use log::debug;
 use rust_decimal::Decimal;
 use std::{
     collections::{BinaryHeap, HashMap},
+    fs::create_dir_all,
+    io,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::sync::{mpsc::Receiver, Mutex};
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use ws_common::b64e::Base64;
 
 #[derive(Clone, Debug)]
@@ -27,6 +29,10 @@ pub struct BalanceUpdate {
 
 /// The tracker keeps track of: Sharetokens, shares (only during settlement), resulting balances.
 pub struct Tracker {
+    /// Path to the tracker archive folder on disk. (owned)
+    archive_path: PathBuf,
+    /// Path to the tracker unsettled folder on disk. (owned)
+    unsettled_path: PathBuf,
     /// The defined share reward calculation function.
     calc: SafeCalc,
     /// The interval at which to attempt settlement of accumulated Sharetokens.
@@ -42,8 +48,10 @@ pub struct Tracker {
     totals: HashMap<String, Decimal>,
     /// For temporary use during settlement calculation of one SK only.
     tokens: HashMap<(String, String), Decimal>,
+    /// Queue of STs to be archived, which can grow if writing to FS is not possible.
+    archive_q: Vec<Sharetoken>,
     /// For receiving txn state updates.
-    txn_chan: ReceiverStream<BalanceUpdate>,
+    txn_chan: Receiver<BalanceUpdate>,
 }
 
 /// The balances struct allows threadsafe access to the actual and pending balance of a relay.
@@ -136,16 +144,29 @@ impl Balances {
 impl Tracker {
     /// Creates a new tracker with the given share reward calculation function and settlement check
     /// interval.
-    pub fn new(calc: SafeCalc, interval: i64, txn_chan: Receiver<BalanceUpdate>) -> Tracker {
-        Tracker {
+    pub fn new(
+        root_path: PathBuf,
+        calc: SafeCalc,
+        interval: i64,
+        txn_chan: Receiver<BalanceUpdate>,
+    ) -> Result<Tracker, io::Error> {
+        // create state dirs
+        let archive_path = root_path.join("archive");
+        let unsettled_path = root_path.join("unsettled");
+        create_dir_all(&archive_path)?;
+        create_dir_all(&unsettled_path)?;
+        Ok(Tracker {
+            archive_path,
+            unsettled_path,
             calc,
             interval,
             sts: BinaryHeap::new(),
             balances: Balances::default(),
+            archive_q: Vec::new(),
             totals: HashMap::new(),
             tokens: HashMap::new(),
-            txn_chan: ReceiverStream::new(txn_chan),
-        }
+            txn_chan,
+        })
     }
 
     /// Enqueues a `Sharetoken` for settlement. The `Sharetoken` itself contains all the necessary
@@ -177,6 +198,7 @@ impl Tracker {
                         let sks = Base64(st.public_key()).to_string();
                         *self.totals.entry(sks.clone()).or_default() += Decimal::ONE;
                         *self.tokens.entry((sks, pks)).or_default() += Decimal::ONE;
+                        self.archive_q.push(st.0);
                         // look for more tokens to settle
                         continue;
                     }
@@ -211,17 +233,79 @@ impl Tracker {
             debug!("* ST totals = {:#?}", self.totals);
         }
         self.totals.clear();
+        debug!("Temporary calc tables (tokens, totals) cleared.");
+        let n = self.archive_q.len();
+        if n > 0 {
+            for st in &self.archive_q {
+                self.save_st(&st, &self.archive_path).await
+            }
+            debug!("{} already settled sharetokens written to archive dir.", n);
+        }
         debug!("Tracker tick finished.");
         next
     }
 
     pub async fn txn_tick(&mut self) {
         debug!("Looking for balance update...");
-        if let Some(upd) = self.txn_chan.next().await {
+        if let Some(upd) = self.txn_chan.try_recv().ok() {
             debug!("Balance update received! {:?}", upd);
             self.balances.commit(&upd.relay, upd.action).await
         } else {
             debug!("No balance update received!");
+        }
+    }
+
+    // synchronous so it can be called from drop()
+    fn save_st_sync(&self, st: &Sharetoken, dir: &Path) {
+        match (|| {
+            create_dir_all(dir.join(st.subdir()))?;
+            std::fs::write(dir.join(st.path()), serde_json::to_string(&st)?)
+        })() {
+            Ok(()) => (),
+            Err(e) => debug!(
+                "Error when writing ST {}: {}!",
+                st.path().to_string_lossy(),
+                e.to_string()
+            ),
+        }
+    }
+
+    // asynchronous so it can yield to other threads when i/o blocked
+    async fn save_st(&self, st: &Sharetoken, dir: &Path) {
+        match (async {
+            create_dir_all(dir.join(st.subdir()))?;
+            tokio::fs::write(dir.join(st.path()), serde_json::to_string(&st)?).await
+        })
+        .await
+        {
+            Ok(()) => (),
+            Err(e) => debug!(
+                "Error when writing ST {}: {}!",
+                st.path().to_string_lossy(),
+                e.to_string()
+            ),
+        }
+    }
+
+    // TODO merge the 2 implementations somehow?
+}
+
+// on graceful shutdown, write everything to disk
+impl Drop for Tracker {
+    fn drop(&mut self) {
+        let n = self.sts.len();
+        if n > 0 {
+            for st in &self.sts {
+                self.save_st_sync(&st.0, &self.unsettled_path)
+            }
+            debug!("{} yet unsettled sharetokens written to unsettled dir.", n);
+        }
+        let n = self.archive_q.len();
+        if n > 0 {
+            for st in &self.archive_q {
+                self.save_st_sync(st, &self.archive_path)
+            }
+            debug!("{} already settled sharetokens written to archive dir.", n);
         }
     }
 }

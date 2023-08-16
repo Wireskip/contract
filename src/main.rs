@@ -1,6 +1,5 @@
 use crate::{
     cfg::Cfg,
-    contract::tracker::BalanceUpdate,
     contract::{calc, tracker},
 };
 use axum::{
@@ -113,11 +112,9 @@ async fn main() {
         relays: HashMap::new(),
         signer: Arc::new(kp),
         public: cfg::mkpublic(cfg.pubdef.clone(), pk),
-        tracker: Arc::new(RwLock::new(tracker::Tracker::new(
-            Arc::new(Box::new(calc)),
-            5,
-            txn_rx,
-        ))),
+        tracker: Arc::new(RwLock::new(
+            tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx).unwrap(),
+        )),
         txn_tx: txn_tx.clone(),
         watcher_tx: watcher_tx.clone(),
     }));
@@ -129,27 +126,26 @@ async fn main() {
         loop {
             let unow = utime(SystemTime::now());
             let unext = bgstate.write().await.tracker.write().await.tick(unow).await;
-
             bgstate.write().await.tracker.write().await.txn_tick().await;
-
             tokio::time::sleep(Duration::from_secs((unext - unow).try_into().unwrap())).await
         }
     });
 
+    /*
     tokio::task::spawn(async move {
         debug!("- Withdrawal status update thread spawned!");
-        loop {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            debug!("- Sending withdrawal status update!");
-            txn_tx
-                .send(BalanceUpdate {
-                    relay: "dummy".to_string(),
-                    action: tracker::Action::Apply,
-                })
-                .await
-                .unwrap()
-        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        debug!("- Sending withdrawal status update.");
+        txn_tx
+            .send(BalanceUpdate {
+                relay: "dummy".to_string(),
+                action: tracker::Action::Apply,
+            })
+            .await
+            .unwrap();
+        debug!("- Withdrawal status update thread exited.");
     });
+    */
 
     let app = NormalizePathLayer::trim_trailing_slash().layer(
         Router::new()

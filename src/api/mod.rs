@@ -4,6 +4,7 @@ use ed25519_dalek::{SecretKey, Signer, VerifyingKey};
 use rust_decimal::Decimal;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
 use wireskip_macros::{Sign, Timestamped};
@@ -225,6 +226,24 @@ pub struct Sharetoken {
     pub signature: Base64<SignatureBytes>,
     #[digest_with_sig]
     pub contract: SKContract,
+}
+
+impl Sharetoken {
+    // TODO different subdirs for contract & relay side
+    pub fn subdir(&self) -> PathBuf {
+        PathBuf::from(
+            [self.public_key.to_string(), self.relay_pubkey.to_string()]
+                .join(&std::path::MAIN_SEPARATOR_STR),
+        )
+    }
+
+    pub fn filename(&self) -> String {
+        self.signature.to_string()
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.subdir().join(self.filename())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
