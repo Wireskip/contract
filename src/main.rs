@@ -113,7 +113,9 @@ async fn main() {
         signer: Arc::new(kp),
         public: cfg::mkpublic(cfg.pubdef.clone(), pk),
         tracker: Arc::new(RwLock::new(
-            tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx).unwrap(),
+            tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx)
+                .await
+                .unwrap(),
         )),
         txn_tx: txn_tx.clone(),
         watcher_tx: watcher_tx.clone(),
@@ -170,6 +172,7 @@ async fn main() {
                 "/verify-withdrawal-request",
                 post(auth::verify_withdrawal_request_post_handler),
             )
+            .route("/payout/balance", get(contract::balance_get_handler))
             .with_state(state),
     );
 

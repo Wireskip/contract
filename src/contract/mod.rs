@@ -18,6 +18,8 @@ use ws_common::{
     time::utime,
 };
 
+use self::tracker::BalanceView;
+
 pub mod calc;
 pub mod tracker;
 
@@ -182,6 +184,33 @@ pub async fn withdraw_post_handler(
         }
         Err(e) => {
             debug!("/withdraw body is NOT OK: {:?}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn balance_get_handler(
+    State(st): crate::state::Safe,
+    rbody: Result<HeaderSignedJson<String>, Json<Status>>,
+) -> axum::response::Result<Json<BalanceView>, Json<Status>> {
+    debug!("Entered /payout/balance handler.");
+    match rbody {
+        Ok(hsj) => {
+            debug!("/payout/balance body is OK");
+            let st = st.read().await;
+            let tracker = st.tracker.read().await;
+            tracker
+                .balances
+                .get(&hsj.public_key.to_string())
+                .await
+                .ok_or(Json(Status {
+                    code: 400,
+                    desc: "no such relay".to_string(),
+                }))
+                .map(Json)
+        }
+        Err(e) => {
+            debug!("/payout/balance body is NOT OK: {:?}", e);
             Err(e)
         }
     }

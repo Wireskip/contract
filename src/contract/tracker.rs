@@ -4,18 +4,19 @@ use crate::{
     api::{chronosort::ChronoSort, Sharetoken},
 };
 use log::debug;
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BinaryHeap, HashMap},
-    fs::create_dir_all,
+    error::Error,
     io,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::sync::{mpsc::Receiver, Mutex};
-use ws_common::b64e::Base64;
+use tokio::sync::{mpsc::Receiver, RwLock};
+use ws_common::{b64e::Base64, time::utimenow};
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub enum Action {
     Apply,
     Abort,
@@ -27,8 +28,56 @@ pub struct BalanceUpdate {
     pub action: Action,
 }
 
+/// The enum of all possible tracker log events.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+enum Event {
+    // submission of a single sharetoken: servicekey public key, relay public key
+    Submission(String, String),
+    // change in the relay's balance on settlement: servicekey public key, relay public key, delta
+    Distribution(String, String, Decimal),
+    // pending withdrawal: relay public key, delta
+    WithdrawalPending(String, Decimal),
+    // final withdrawal: relay public key, action
+    WithdrawalFinal(String, Action),
+    // settlement of a single servicekey: servicekey public key
+    Settlement(String),
+}
+
+/// Tracker log keeps records of utime and event.
+#[derive(Serialize, Deserialize, Debug)]
+struct TrackerLog {
+    start: i64,
+    events: Vec<(i64, Event)>,
+}
+
+impl TrackerLog {
+    fn new() -> Self {
+        TrackerLog {
+            start: utimenow(),
+            events: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, e: Event) {
+        self.events.push((utimenow(), e))
+    }
+
+    // TODO append?
+    async fn save(&self, p: &Path) -> Result<(), impl Error> {
+        tokio::fs::write(
+            p.join(format!("contract_{}.log", self.start)),
+            serde_json::to_string(self)?,
+        )
+        .await
+        .into()
+    }
+}
+
 /// The tracker keeps track of: Sharetokens, shares (only during settlement), resulting balances.
 pub struct Tracker {
+    /// Path to the tracker root folder on disk. (owned)
+    root_path: PathBuf,
     /// Path to the tracker archive folder on disk. (owned)
     archive_path: PathBuf,
     /// Path to the tracker unsettled folder on disk. (owned)
@@ -44,23 +93,32 @@ pub struct Tracker {
     sts: BinaryHeap<ChronoSort<Sharetoken>>,
     /// The balances table with actual and pending relay balances.
     pub balances: Balances,
-    /// For temporary use during settlement calculation of one SK only.
+    /// For temporary use during settlement calculation only.
     totals: HashMap<String, Decimal>,
-    /// For temporary use during settlement calculation of one SK only.
+    /// For temporary use during settlement calculation only.
     tokens: HashMap<(String, String), Decimal>,
     /// Queue of STs to be archived, which can grow if writing to FS is not possible.
     archive_q: Vec<Sharetoken>,
     /// For receiving txn state updates.
     txn_chan: Receiver<BalanceUpdate>,
+    /// Log of this tracker.
+    log: TrackerLog,
 }
 
 /// The balances struct allows threadsafe access to the actual and pending balance of a relay.
 #[derive(Clone, Debug, Default)]
 pub struct Balances {
-    /// New entries can be added on demand, existing entries' modification is mutex-protected;
-    /// therefore we do not need to mutex-protect the entire hashmap for now.
+    /// New entries can be added on demand, existing entries' modification is rwlock-protected;
+    /// therefore we do not need to rwlock-protect the entire hashmap for now.
     /// The HashMap itself is Send + Sync, it can be shared safely as is (1 writer, N readers).
-    h: HashMap<String, Arc<Mutex<(Decimal, Decimal)>>>,
+    h: HashMap<String, Arc<RwLock<(Decimal, Decimal)>>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BalanceView {
+    currency: String,
+    available: i64,
+    pending: i64,
 }
 
 /// The balances table with actual and pending relay balances.
@@ -69,7 +127,7 @@ impl Balances {
     /// will be applied after the next commit.
     pub async fn draft(&mut self, rk: &str, delta: Decimal) -> Result<(), String> {
         // TODO look into not allocating string copy
-        let mut cur = self.h.entry(rk.to_string()).or_default().lock().await;
+        let mut cur = self.h.entry(rk.to_string()).or_default().write().await;
 
         if cur.1 != Decimal::ZERO {
             return Err("balance change already pending!".to_string());
@@ -105,7 +163,7 @@ impl Balances {
     /// Apply or abort a pending change at a later point.
     async fn commit(&mut self, rk: &str, act: Action) {
         // TODO look into not allocating string copy
-        let mut cur = self.h.entry(rk.to_string()).or_default().lock().await;
+        let mut cur = self.h.entry(rk.to_string()).or_default().write().await;
 
         match act {
             Action::Apply => {
@@ -134,45 +192,92 @@ impl Balances {
         }
     }
 
+    /// Get the current balance for a relay.
+    pub async fn get(&self, rk: &str) -> Option<BalanceView> {
+        let bal = self.h.get(rk)?.read().await;
+        Some(BalanceView {
+            currency: "USD".to_string(), // TODO
+            available: bal.0.to_i64()?,
+            pending: bal.1.to_i64()?,
+        })
+    }
+
     /// How many entries are there?
     pub fn len(&self) -> usize {
         self.h.len()
     }
+
+    pub fn from(src: HashMap<String, (Decimal, Decimal)>) -> Self {
+        let mut h = HashMap::new();
+        h.reserve(src.len());
+        for (k, v) in src {
+            h.insert(k.to_owned(), Arc::new(RwLock::new(v)));
+        }
+        Self { h }
+    }
+
+    pub fn export(&self) -> HashMap<String, (Decimal, Decimal)> {
+        let mut h = HashMap::new();
+        h.reserve(self.h.len());
+        for (k, v) in &self.h {
+            h.insert(k.to_owned(), *v.blocking_read());
+        }
+        h
+    }
 }
+
+const BALANCES_FILE: &'static str = &"balances.json";
 
 /// The tracker keeps track of: Sharetokens, shares (only during settlement), resulting balances.
 impl Tracker {
     /// Creates a new tracker with the given share reward calculation function and settlement check
     /// interval.
-    pub fn new(
+    pub async fn new(
         root_path: PathBuf,
         calc: SafeCalc,
         interval: i64,
         txn_chan: Receiver<BalanceUpdate>,
     ) -> Result<Tracker, io::Error> {
+        use tokio::fs::{create_dir_all, read};
+
         // create state dirs
         let archive_path = root_path.join("archive");
         let unsettled_path = root_path.join("unsettled");
-        create_dir_all(&archive_path)?;
-        create_dir_all(&unsettled_path)?;
+        create_dir_all(&archive_path).await?;
+        create_dir_all(&unsettled_path).await?;
+
+        let saved: Result<_, Box<dyn Error>> = async {
+            serde_json::from_slice(&read(root_path.join(BALANCES_FILE)).await?)
+                .map_err(|e| e.into())
+        }
+        .await;
+
+        let balances = Balances::from(saved.unwrap_or_default());
+
         Ok(Tracker {
+            root_path,
             archive_path,
             unsettled_path,
             calc,
             interval,
             sts: BinaryHeap::new(),
-            balances: Balances::default(),
+            balances,
             archive_q: Vec::new(),
             totals: HashMap::new(),
             tokens: HashMap::new(),
             txn_chan,
+            log: TrackerLog::new(),
         })
     }
 
     /// Enqueues a `Sharetoken` for settlement. The `Sharetoken` itself contains all the necessary
     /// information to perform the settlement in favor of a relay for a given servicekey.
     pub fn push(&mut self, st: Sharetoken) {
-        self.sts.push(ChronoSort(st))
+        self.log.add(Event::Submission(
+            st.public_key.to_string(),
+            st.relay_pubkey.to_string(),
+        ));
+        self.sts.push(ChronoSort(st));
     }
 
     /// Synchronous (blocking) tracker tick to settle (over)due Sharetokens.
@@ -216,32 +321,42 @@ impl Tracker {
         }
 
         // calculate actual balances off shares
-        for (k, v) in self
+        for (v, sk, rk) in self
             .tokens
             .drain()
-            .map(|((sk, rk), v)| (rk, v / self.totals[&sk]))
+            .map(|((sk, rk), v)| (v / self.totals[&sk], sk, rk))
         {
             let r = self.calc.reward(v);
             assert!(r.is_sign_positive()); // the subsequent unwrap depends on this
-            self.balances.draft(&k, r).await.unwrap();
-            self.balances.commit(&k, Action::Apply).await
+            self.balances.draft(&rk, r).await.unwrap();
+            self.balances.commit(&rk, Action::Apply).await;
+            self.log.add(Event::Distribution(sk, rk, r))
         }
         if self.balances.len() > 0 {
             debug!("* ST balances = {:#?}", self.balances);
         }
         if self.totals.len() > 0 {
             debug!("* ST totals = {:#?}", self.totals);
+            for k in self.totals.keys() {
+                self.log.add(Event::Settlement(k.to_string()))
+            }
+            self.totals.clear();
+            debug!("Temporary calc tables (tokens, totals) cleared.");
         }
-        self.totals.clear();
-        debug!("Temporary calc tables (tokens, totals) cleared.");
-        let n = self.archive_q.len();
-        if n > 0 {
+        if self.archive_q.len() > 0 {
             for st in &self.archive_q {
                 self.save_st(&st, &self.archive_path).await
             }
-            debug!("{} already settled sharetokens written to archive dir.", n);
+            debug!(
+                "{} already settled sharetokens written to archive dir.",
+                self.archive_q.len()
+            );
+            self.archive_q.clear()
         }
         debug!("Tracker tick finished.");
+        if let Err(e) = self.log.save(&self.root_path).await {
+            debug!("Could not write tracker log: {}", e.to_string());
+        };
         next
     }
 
@@ -249,7 +364,8 @@ impl Tracker {
         debug!("Looking for balance update...");
         if let Some(upd) = self.txn_chan.try_recv().ok() {
             debug!("Balance update received! {:?}", upd);
-            self.balances.commit(&upd.relay, upd.action).await
+            self.balances.commit(&upd.relay, upd.action).await;
+            self.log.add(Event::WithdrawalFinal(upd.relay, upd.action))
         } else {
             debug!("No balance update received!");
         }
@@ -257,9 +373,10 @@ impl Tracker {
 
     // synchronous so it can be called from drop()
     fn save_st_sync(&self, st: &Sharetoken, dir: &Path) {
+        use std::fs::{create_dir_all, write};
         match (|| {
             create_dir_all(dir.join(st.subdir()))?;
-            std::fs::write(dir.join(st.path()), serde_json::to_string(&st)?)
+            write(dir.join(st.path()), serde_json::to_string(&st)?)
         })() {
             Ok(()) => (),
             Err(e) => debug!(
@@ -272,9 +389,10 @@ impl Tracker {
 
     // asynchronous so it can yield to other threads when i/o blocked
     async fn save_st(&self, st: &Sharetoken, dir: &Path) {
+        use tokio::fs::{create_dir_all, write};
         match (async {
-            create_dir_all(dir.join(st.subdir()))?;
-            tokio::fs::write(dir.join(st.path()), serde_json::to_string(&st)?).await
+            create_dir_all(dir.join(st.subdir())).await?;
+            write(dir.join(st.path()), serde_json::to_string(&st)?).await
         })
         .await
         {
@@ -307,5 +425,10 @@ impl Drop for Tracker {
             }
             debug!("{} already settled sharetokens written to archive dir.", n);
         }
+        let balances = self.balances.export();
+        let _ = std::fs::write(
+            self.root_path.join(BALANCES_FILE),
+            serde_json::to_string(&balances).unwrap(),
+        );
     }
 }

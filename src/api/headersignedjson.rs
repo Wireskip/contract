@@ -8,6 +8,7 @@ use strum::EnumString;
 use ws_common::{api::Status, b64e::Base64};
 
 #[derive(Debug, EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub enum Signatory {
     Auth,
     Relay,
@@ -17,6 +18,7 @@ pub enum Signatory {
 }
 
 #[derive(Debug, EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub enum Field {
     Pubkey,
     Signature,
@@ -34,6 +36,12 @@ fn error<E: ToString>(s: E) -> Json<Status> {
         code: StatusCode::BAD_REQUEST.into(),
         desc: s.to_string(),
     })
+}
+
+const QUOTE: char = '"';
+
+fn quote(s: &str) -> String {
+    QUOTE.to_string() + s + &QUOTE.to_string()
 }
 
 #[async_trait]
@@ -58,33 +66,21 @@ where
                     if k.starts_with("wireleap-") {
                         let ks: Vec<_> = k.split("-").collect();
                         if ks.len() == 3 {
-                            if let Some(who) = Signatory::from_str(ks[1]).ok() {
-                                if let Some(what) = Field::from_str(ks[2]).ok() {
-                                    if acc.0.is_some() {
-                                        // we already have some field like this... fail!
-                                        (None, None, None)
-                                    } else {
-                                        match what {
-                                            Field::Pubkey => (Some(who), v.to_str().ok(), acc.1),
-                                            Field::Signature => (Some(who), acc.1, v.to_str().ok()),
-                                        }
-                                    }
-                                } else {
-                                    acc
+                            if let (Ok(who), Ok(what)) =
+                                (Signatory::from_str(ks[1]), Field::from_str(ks[2]))
+                            {
+                                match what {
+                                    Field::Pubkey => return (Some(who), v.to_str().ok(), acc.2),
+                                    Field::Signature => return (Some(who), acc.1, v.to_str().ok()),
                                 }
-                            } else {
-                                acc
                             }
-                        } else {
-                            acc
                         }
-                    } else {
-                        acc
-                    }
+                    };
+                    acc
                 })
         {
-            let pk: Base64<VerifyingKey> = serde_json::from_str(pk).map_err(error)?;
-            let sig: Base64<SignatureBytes> = serde_json::from_str(sig).map_err(error)?;
+            let pk: Base64<VerifyingKey> = serde_json::from_str(&quote(pk)).map_err(error)?;
+            let sig: Base64<SignatureBytes> = serde_json::from_str(&quote(sig)).map_err(error)?;
             let bytes = hyper::body::to_bytes(body).await.map_err(error)?;
             if let Ok(()) = pk.0.verify(&bytes, &sig.0.into()) {
                 let body2 = Body::from(bytes);
