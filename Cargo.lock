@@ -292,8 +292,8 @@ dependencies = [
  "tower",
  "tower-http",
  "url",
- "wireskip_macros",
  "ws_common",
+ "ws_macros",
 ]
 
 [[package]]
@@ -1834,15 +1834,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a515f5799fe4961cb532f983ce2b23082366b898e52ffbce459c86f67c8378a"
 
 [[package]]
-name = "wireskip_macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.25",
-]
-
-[[package]]
 name = "ws_common"
 version = "0.1.0"
 dependencies = [
@@ -1857,6 +1848,15 @@ dependencies = [
  "serde_json",
  "strum",
  "url",
+]
+
+[[package]]
+name = "ws_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.25",
 ]
 
 [[package]]

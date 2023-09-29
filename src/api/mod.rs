@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
-use wireskip_macros::{Sign, Timestamped};
+use ws_macros::{Sign, Timestamped};
 use ws_common::api::{Pof, WithdrawalState};
 
 pub mod chronosort;
