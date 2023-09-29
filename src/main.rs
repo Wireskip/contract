@@ -20,7 +20,7 @@ use std::{
 use tokio::sync::{mpsc, RwLock};
 use tower::layer::Layer;
 use tower_http::normalize_path::NormalizePathLayer;
-use ws_common::{b64e::Base64, cfg::ConfigType, time::utime};
+use ws_common::{b64e::Base64, bin::common_setup, cfg::ConfigType, time::utime};
 
 mod api;
 mod auth;
@@ -34,8 +34,11 @@ static VERSION: Lazy<Version> = Lazy::new(|| Version::parse(env!("CARGO_PKG_VERS
 
 #[tokio::main]
 async fn main() {
-    let ct: ConfigType<PubDefined> = ConfigType::new();
-    let cfg = ws_common::bin::common_setup(ct).unwrap();
+    let cfg = match common_setup(ConfigType::<PubDefined>::new()) {
+        Ok(Ok(c)) => c,
+        Ok(Err(())) => return,
+        Err(e) => panic!("{}", e),
+    };
 
     let kp = cfg.keypair.clone().unwrap().0;
 
