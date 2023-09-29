@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use ed25519_dalek::Signer;
 use hyper::{body, Method, Request};
 use log::debug;
 use rust_decimal::Decimal;
@@ -30,6 +31,7 @@ pub async fn activate_post_handler(
     match body {
         // TODO validate payload
         Ok(Json(_)) => {
+            let k = &st.crypto.key;
             let st = st.read().await;
 
             let now = SystemTime::now();
@@ -47,7 +49,7 @@ pub async fn activate_post_handler(
 
             let skc = SKContract {
                 public_key: pk,
-                signature: Base64(st.signer.sign(msg.as_bytes()).to_bytes()),
+                signature: Base64(k.sign(msg.as_bytes()).to_bytes()),
                 settlement_open: uso,
                 settlement_close: uss,
             };

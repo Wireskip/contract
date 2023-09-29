@@ -35,6 +35,7 @@ pub async fn issue_accesskeys_post_handler(
 ) -> impl IntoResponse {
     match body {
         Ok(Json(payload)) => {
+            let k = &st.crypto.key;
             let st = st.read().await;
             Json(Accesskey {
                 version: VERSION.clone(),
@@ -43,7 +44,7 @@ pub async fn issue_accesskeys_post_handler(
                     public_key: st.public.derived.public_key,
                 },
                 pofs: (0..payload.quantity)
-                    .map(|_| mk_pof(&*st.signer, payload.pof_type.clone(), payload.duration))
+                    .map(|_| mk_pof(k, payload.pof_type.clone(), payload.duration))
                     .collect(),
             })
             .into_response()

@@ -108,18 +108,20 @@ async fn main() {
     let (txn_tx, txn_rx) = mpsc::channel(100);
     let (watcher_tx, _watcher_rx) = mpsc::channel(100);
 
-    let state: state::SafeInner = Arc::new(RwLock::new(state::Custom {
-        relays: HashMap::new(),
-        signer: Arc::new(kp),
-        public: cfg::mkpublic(cfg.pubdef.clone(), pk),
-        tracker: Arc::new(RwLock::new(
-            tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx)
-                .await
-                .unwrap(),
-        )),
-        txn_tx: txn_tx.clone(),
-        watcher_tx: watcher_tx.clone(),
-    }));
+    let state = ws_common::state::new(
+        kp,
+        Arc::new(RwLock::new(state::Custom {
+            relays: HashMap::new(),
+            public: cfg::mkpublic(cfg.pubdef.clone(), pk),
+            tracker: Arc::new(RwLock::new(
+                tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx)
+                    .await
+                    .unwrap(),
+            )),
+            txn_tx: txn_tx.clone(),
+            watcher_tx: watcher_tx.clone(),
+        })),
+    );
 
     let bgstate = state.clone();
 

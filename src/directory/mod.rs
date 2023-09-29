@@ -5,6 +5,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use ed25519_dalek::Signer;
 use log::{debug, warn};
 use ws_common::{api::Status, b64e::Base64};
 
@@ -73,9 +74,10 @@ pub async fn relays_delete_handler(
 pub async fn relays_get_handler(State(st): crate::state::Safe) -> impl IntoResponse {
     debug!("Relay GET");
     let mut header_map = HeaderMap::new();
+    let k = &st.crypto.key;
     let st = st.read().await;
     let s = serde_json::to_string(&st.relays.clone()).unwrap();
-    let sig = Base64(st.signer.sign(s.as_bytes()).to_bytes()).to_string();
+    let sig = Base64(k.sign(s.as_bytes()).to_bytes()).to_string();
     header_map.insert(
         "wireleap-directory-pubkey",
         st.public.derived.public_key.to_string().parse().unwrap(),
