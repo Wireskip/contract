@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
-use ws_macros::{Sign, Timestamped};
 use ws_common::api::{Pof, WithdrawalState};
+use ws_macros::{Sign, Timestamped};
 
 pub mod chronosort;
 pub mod digestible;

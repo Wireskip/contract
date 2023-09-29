@@ -1,30 +1,26 @@
 use crate::{
-    cfg::Cfg,
+    api::PubDefined,
     contract::{calc, tracker},
 };
 use axum::{
     routing::{get, post},
     Router, ServiceExt,
 };
-use config::Config;
-use ed25519_dalek::SigningKey;
 use log::*;
 use once_cell::sync::Lazy;
-use rand::rngs::OsRng;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use semver::Version;
-use serde::Serialize;
 use std::{
     collections::HashMap,
-    env, fs,
+    env,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::sync::{mpsc, RwLock};
 use tower::layer::Layer;
 use tower_http::normalize_path::NormalizePathLayer;
-use ws_common::{b64e::Base64, time::utime};
+use ws_common::{b64e::Base64, cfg::ConfigType, time::utime};
 
 mod api;
 mod auth;
@@ -38,83 +34,32 @@ static VERSION: Lazy<Version> = Lazy::new(|| Version::parse(env!("CARGO_PKG_VERS
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let ct: ConfigType<PubDefined> = ConfigType::new();
+    let cfg = ws_common::bin::common_setup(ct).unwrap();
 
-    let mut p = env::current_exe().unwrap();
-    p.pop();
-
-    let main = p.join("config.json5");
-    if !main.exists() {
-        fs::write(main, serde_json::to_string(&Cfg::default()).unwrap())
-            .expect("Unable to write config file");
-    }
-
-    let local = p.join("config.local.json5");
-    if !local.exists() {
-        // to write just the correct config subset
-        #[derive(Serialize)]
-        struct K<'a> {
-            keypair: &'a Base64<SigningKey>,
-        }
-
-        let mut rng = OsRng {};
-        let kp: SigningKey = SigningKey::generate(&mut rng);
-
-        fs::write(
-            p.join("key.pub"),
-            serde_json::to_string(&Base64(kp.verifying_key())).unwrap(),
-        )
-        .expect("Unable to write pubkey compat file");
-        fs::write(
-            local,
-            serde_json::to_string(&K {
-                keypair: &Base64(kp),
-            })
-            .unwrap(),
-        )
-        .expect("Unable to write local config file");
-    }
-
-    let args: Vec<String> = env::args().collect();
-    if args.len() > 1 && args[1] == "init" {
-        // our job here is done
-        return;
-    }
-
-    let cfg: Cfg = Config::builder()
-        .add_source(config::File::from(p.join("config")))
-        .add_source(config::File::from(p.join("config.local")))
-        .add_source(config::Environment::with_prefix("WIRESKIP_CONTRACT"))
-        .build()
-        .unwrap()
-        .try_deserialize()
-        .unwrap();
-
-    info!("Listening on {}", cfg.address);
-
-    let pk = match cfg.keypair {
-        Some(Base64(ref kp)) => kp.verifying_key().clone(),
-        None => panic!("No keys defined -- is your config.local.json5 in place? `init` done?"),
-    };
-
-    let kp = cfg.keypair.unwrap().0;
+    let kp = cfg.keypair.clone().unwrap().0;
 
     let calc = calc::DefaultShareCalc {
-        value: cfg.pubdef.servicekey.value,
-        fee_frac: cfg.pubdef.settlement.fee_percent / Decimal::ONE_HUNDRED,
+        value: cfg.etc.servicekey.value,
+        fee_frac: cfg.etc.settlement.fee_percent / Decimal::ONE_HUNDRED,
         rsh_frac: dec!(5) / Decimal::ONE_HUNDRED, // hardcoded revenue share
     };
 
     let (txn_tx, txn_rx) = mpsc::channel(100);
     let (watcher_tx, _watcher_rx) = mpsc::channel(100);
 
+    let pk = match cfg.keypair {
+        Some(Base64(ref kp)) => kp.verifying_key().clone(),
+        None => panic!("No keys defined -- is your config.local.json5 in place? `init` done?"),
+    };
+
     let state = ws_common::state::new(
         kp,
         Arc::new(RwLock::new(state::Custom {
             relays: HashMap::new(),
-            public: cfg::mkpublic(cfg.pubdef.clone(), pk),
+            public: cfg::mkpublic(cfg.etc.clone(), pk),
             tracker: Arc::new(RwLock::new(
-                tracker::Tracker::new(p, Arc::new(Box::new(calc)), 5, txn_rx)
+                tracker::Tracker::new(cfg.root, Arc::new(Box::new(calc)), 5, txn_rx)
                     .await
                     .unwrap(),
             )),
