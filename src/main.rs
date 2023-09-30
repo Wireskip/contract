@@ -11,6 +11,7 @@ use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use semver::Version;
+use std::error::Error;
 use std::{
     collections::HashMap,
     env,
@@ -33,11 +34,10 @@ mod state;
 static VERSION: Lazy<Version> = Lazy::new(|| Version::parse(env!("CARGO_PKG_VERSION")).unwrap());
 
 #[tokio::main]
-async fn main() {
-    let cfg = match common_setup(ConfigType::<PubDefined>::new()) {
-        Ok(Ok(c)) => c,
-        Ok(Err(())) => return,
-        Err(e) => panic!("{}", e),
+async fn main() -> Result<(), Box<dyn Error>> {
+    let cfg = match common_setup(ConfigType::<PubDefined>::new())? {
+        Some(c) => c,
+        None => return Ok(()),
     };
 
     let kp = cfg.keypair.clone().unwrap().0;
@@ -130,4 +130,6 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+
+    Ok(())
 }
