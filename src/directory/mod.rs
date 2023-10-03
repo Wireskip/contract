@@ -1,4 +1,4 @@
-use crate::{ api::{Public, Relay} };
+use crate::api::{Public, Relay};
 use axum::{
     extract::{rejection::JsonRejection, State},
     http::HeaderMap,

@@ -2,6 +2,7 @@ use crate::{
     api::{Public, Relay},
     contract::tracker::{BalanceUpdate, Tracker},
 };
+use axum::extract::State;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc::Sender, RwLock};
 use ws_common::api::Withdrawal;
@@ -18,4 +19,4 @@ pub struct Custom {
 
 pub type SafeInner = Arc<RwLock<Custom>>;
 
-pub type Safe = ws_common::state::Safe<SafeInner>;
+pub type Safe = State<ws_common::state::BaseState<SafeInner>>;
